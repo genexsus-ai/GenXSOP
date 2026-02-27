@@ -17,7 +17,10 @@ from dateutil.relativedelta import relativedelta
 
 from app.ml.strategies import (
     MovingAverageStrategy,
+    EWMAStrategy,
     ExponentialSmoothingStrategy,
+    SeasonalNaiveStrategy,
+    ARIMAStrategy,
     ProphetStrategy,
     ForecastContext,
     BaseForecastStrategy,
@@ -109,6 +112,41 @@ class TestExponentialSmoothingStrategy:
             assert item["predicted_qty"] >= 0
 
 
+class TestEWMAStrategy:
+
+    def test_model_id(self):
+        assert EWMAStrategy().model_id == "ewma"
+
+    def test_forecast_returns_horizon(self):
+        df = make_df(12)
+        result = EWMAStrategy().forecast(df, horizon=4)
+        assert len(result) == 4
+        assert all(item["predicted_qty"] >= 0 for item in result)
+
+
+class TestSeasonalNaiveStrategy:
+
+    def test_model_id(self):
+        assert SeasonalNaiveStrategy().model_id == "seasonal_naive"
+
+    def test_forecast_with_seasonality(self):
+        df = make_df(24)
+        result = SeasonalNaiveStrategy().forecast(df, horizon=6)
+        assert len(result) == 6
+
+
+class TestARIMAStrategy:
+
+    def test_model_id(self):
+        assert ARIMAStrategy().model_id == "arima"
+
+    def test_forecast_returns_horizon(self):
+        df = make_df(24)
+        result = ARIMAStrategy().forecast(df, horizon=5)
+        assert len(result) == 5
+        assert all(item["predicted_qty"] >= 0 for item in result)
+
+
 # ── Forecast Context ──────────────────────────────────────────────────────────
 
 class TestForecastContext:
@@ -157,7 +195,10 @@ class TestForecastModelFactory:
         models = ForecastModelFactory.list_models()
         ids = [m["id"] for m in models]
         assert "moving_average" in ids
+        assert "ewma" in ids
         assert "exp_smoothing" in ids
+        assert "seasonal_naive" in ids
+        assert "arima" in ids
         assert "prophet" in ids
 
     def test_list_models_has_required_keys(self):

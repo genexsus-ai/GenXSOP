@@ -194,6 +194,15 @@ curl -s "http://localhost:8000/api/v1/forecasting/models" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Current model catalog includes:
+
+- `moving_average`
+- `ewma`
+- `exp_smoothing`
+- `seasonal_naive`
+- `arima`
+- `prophet`
+
 Generate:
 
 ```bash
@@ -303,6 +312,27 @@ Anomalies:
 
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/forecasting/anomalies/detect?product_id=1" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Run sandbox (multi-model comparison + LLM recommendation):
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/sandbox/run?product_id=1&horizon=6" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Run sandbox with specific model set:
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/sandbox/run?product_id=1&horizon=6&model_types=ewma&model_types=arima&model_types=prophet" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Promote selected sandbox option to demand plan:
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/sandbox/promote?product_id=1&selected_model=arima&horizon=6&notes=Approved%20for%20next%20S%26OP" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

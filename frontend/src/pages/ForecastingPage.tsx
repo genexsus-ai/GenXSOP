@@ -7,7 +7,15 @@ import { KPICard } from '@/components/common/KPICard'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
-import type { Forecast, ForecastAccuracy, ForecastDiagnostics, ForecastDriftAlert, GenerateForecastRequest } from '@/types'
+import type {
+  Forecast,
+  ForecastAccuracy,
+  ForecastDiagnostics,
+  ForecastDriftAlert,
+  ForecastModelType,
+  ForecastSandboxResponse,
+  GenerateForecastRequest,
+} from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -26,7 +34,10 @@ import {
 
 const MODEL_TYPES = [
   { value: 'moving_average', label: 'Moving Average' },
+  { value: 'ewma', label: 'EWMA' },
   { value: 'exp_smoothing', label: 'Exponential Smoothing' },
+  { value: 'seasonal_naive', label: 'Seasonal Naive' },
+  { value: 'arima', label: 'ARIMA' },
   { value: 'prophet', label: 'Prophet' },
 ]
 
@@ -42,6 +53,9 @@ export function ForecastingPage() {
   const [showGenerate, setShowGenerate] = useState(false)
   const [diagnostics, setDiagnostics] = useState<ForecastDiagnostics | null>(null)
   const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
+  const [sandbox, setSandbox] = useState<ForecastSandboxResponse | null>(null)
+  const [runningSandbox, setRunningSandbox] = useState(false)
+  const [promotingModel, setPromotingModel] = useState<ForecastModelType | null>(null)
   const [form, setForm] = useState<Partial<GenerateForecastRequest>>({
     model_type: 'prophet',
     horizon_months: 6,
@@ -99,12 +113,61 @@ export function ForecastingPage() {
         product_id: form.product_id,
         model_type: form.model_type,
       })
-      setDiagnostics(result.diagnostics ?? null)
+      const diagnostics = result.diagnostics ?? null
+      setDiagnostics(diagnostics)
+
+      if (diagnostics?.selected_model) {
+        setForm((prev) => ({
+          ...prev,
+          model_type: diagnostics.selected_model as GenerateForecastRequest['model_type'],
+        }))
+      }
+
       toast.success('Recommendation received')
     } catch {
       // handled
     } finally {
       setRecommending(false)
+    }
+  }
+
+  const handleRunSandbox = async () => {
+    if (!form.product_id) {
+      toast.error('Please enter a product ID')
+      setShowGenerate(true)
+      return
+    }
+
+    setRunningSandbox(true)
+    try {
+      const result = await forecastService.runSandbox({
+        product_id: form.product_id,
+        horizon_months: form.horizon_months,
+      })
+      setSandbox(result)
+      toast.success('Sandbox generated')
+    } catch {
+      // handled
+    } finally {
+      setRunningSandbox(false)
+    }
+  }
+
+  const handlePromote = async (model: ForecastModelType) => {
+    if (!form.product_id) return
+    setPromotingModel(model)
+    try {
+      const result = await forecastService.promoteSandboxOption({
+        product_id: form.product_id,
+        selected_model: model,
+        horizon_months: form.horizon_months,
+      })
+      toast.success(`Promoted ${result.records_promoted} demand plan records`) 
+      await load()
+    } catch {
+      // handled
+    } finally {
+      setPromotingModel(null)
     }
   }
 
@@ -146,6 +209,9 @@ export function ForecastingPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" icon={<Sparkles />} loading={recommending} onClick={handleRecommend}>
               Get Recommendation
+            </Button>
+            <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox}>
+              Run Sandbox
             </Button>
             <Button icon={<Play />} onClick={() => setShowGenerate(true)}>
               Generate Forecast
@@ -202,6 +268,47 @@ export function ForecastingPage() {
                 </span>
               </div>
             ))}
+          </div>
+        </Card>
+      )}
+
+      {sandbox && (
+        <Card title="Forecast Sandbox" subtitle="Compare candidate models and promote preferred result to demand planning">
+          <div className="mb-3 text-sm text-gray-700">
+            <span className="font-medium">Recommended:</span> {sandbox.recommended_model?.replace(/_/g, ' ') ?? '—'} ·{' '}
+            <span className="font-medium">Reason:</span> {sandbox.advisor?.reason ?? '—'}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Model', 'Score', 'MAPE', 'WAPE', 'Hit Rate', 'Action'].map((h) => (
+                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sandbox.options.map((o) => (
+                  <tr key={o.model_type}>
+                    <td className="py-2.5 font-medium text-gray-900">{o.display_name}</td>
+                    <td className="py-2.5">{o.score?.toFixed?.(2) ?? '—'}</td>
+                    <td className="py-2.5">{o.metrics?.mape != null ? formatPercent(o.metrics.mape) : '—'}</td>
+                    <td className="py-2.5">{o.metrics?.wape != null ? formatPercent(o.metrics.wape) : '—'}</td>
+                    <td className="py-2.5">{o.metrics?.hit_rate != null ? formatPercent(o.metrics.hit_rate) : '—'}</td>
+                    <td className="py-2.5">
+                      <Button
+                        size="sm"
+                        loading={promotingModel === o.model_type}
+                        onClick={() => handlePromote(o.model_type)}
+                        disabled={!canGenerate}
+                      >
+                        Promote to Demand Plan
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
@@ -348,6 +455,9 @@ export function ForecastingPage() {
             <Button variant="outline" loading={recommending} onClick={handleRecommend} icon={<Sparkles />} disabled={!canGenerate}>
               Get Recommendation
             </Button>
+            <Button variant="outline" loading={runningSandbox} onClick={handleRunSandbox} icon={<Brain />} disabled={!canGenerate}>
+              Run Sandbox
+            </Button>
             <Button loading={generating} onClick={handleGenerate} icon={<Brain />} disabled={!canGenerate}>
               Generate
             </Button>
@@ -383,6 +493,18 @@ export function ForecastingPage() {
               <span>1 month</span><span>24 months</span>
             </div>
           </div>
+
+          {diagnostics && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-1">Latest Recommendation</p>
+              <p className="text-sm text-blue-900">
+                <span className="font-medium">Model:</span> {diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}
+              </p>
+              <p className="text-xs text-blue-800 mt-1">
+                {diagnostics.selection_reason ?? 'No recommendation details.'}
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -151,6 +151,120 @@ class ExponentialSmoothingStrategy(BaseForecastStrategy):
             return MovingAverageStrategy().forecast(df, horizon)
 
 
+class EWMAStrategy(BaseForecastStrategy):
+    """Exponentially weighted moving average baseline."""
+
+    @property
+    def model_id(self) -> str:
+        return "ewma"
+
+    @property
+    def display_name(self) -> str:
+        return "EWMA"
+
+    @property
+    def min_data_months(self) -> int:
+        return 4
+
+    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+        alpha = 0.35
+        ewma = float(df["y"].ewm(alpha=alpha, adjust=False).mean().iloc[-1])
+        trend = float(df["y"].diff().tail(3).mean()) if len(df) >= 4 else 0.0
+        std = float(df["y"].std()) if len(df) > 1 else max(1.0, ewma * 0.1)
+        future_periods = self._build_future_periods(df, horizon)
+        return [
+            {
+                "period": p,
+                "predicted_qty": round(max(0.0, ewma + trend * i * 0.4), 2),
+                "lower_bound": round(max(0.0, ewma + trend * i * 0.4 - 1.64 * std), 2),
+                "upper_bound": round(max(0.0, ewma + trend * i * 0.4 + 1.64 * std), 2),
+                "confidence": 82.0,
+                "mape": None,
+            }
+            for i, p in enumerate(future_periods, 1)
+        ]
+
+
+class SeasonalNaiveStrategy(BaseForecastStrategy):
+    """Seasonal naive baseline using prior year values."""
+
+    @property
+    def model_id(self) -> str:
+        return "seasonal_naive"
+
+    @property
+    def display_name(self) -> str:
+        return "Seasonal Naive"
+
+    @property
+    def min_data_months(self) -> int:
+        return 12
+
+    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+        if len(df) < 12:
+            return EWMAStrategy().forecast(df, horizon)
+        y = df["y"].values
+        std = float(df["y"].std()) if len(df) > 1 else max(1.0, float(np.mean(y)) * 0.1)
+        future_periods = self._build_future_periods(df, horizon)
+        vals = []
+        for i in range(1, horizon + 1):
+            idx = -12 + ((i - 1) % 12)
+            vals.append(float(y[idx]))
+        return [
+            {
+                "period": p,
+                "predicted_qty": round(max(0.0, v), 2),
+                "lower_bound": round(max(0.0, v - 1.64 * std), 2),
+                "upper_bound": round(max(0.0, v + 1.64 * std), 2),
+                "confidence": 78.0,
+                "mape": None,
+            }
+            for p, v in zip(future_periods, vals)
+        ]
+
+
+class ARIMAStrategy(BaseForecastStrategy):
+    """ARIMA strategy with guarded fallback behavior."""
+
+    @property
+    def model_id(self) -> str:
+        return "arima"
+
+    @property
+    def display_name(self) -> str:
+        return "ARIMA"
+
+    @property
+    def min_data_months(self) -> int:
+        return 12
+
+    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+        if len(df) < self.min_data_months:
+            return ExponentialSmoothingStrategy().forecast(df, horizon)
+
+        try:
+            from statsmodels.tsa.arima.model import ARIMA
+            model = ARIMA(df["y"].astype(float).values, order=(1, 1, 1))
+            fit = model.fit()
+            pred = fit.get_forecast(steps=horizon)
+            vals = pred.predicted_mean
+            ci = pred.conf_int(alpha=0.05)
+            future_periods = self._build_future_periods(df, horizon)
+            return [
+                {
+                    "period": p,
+                    "predicted_qty": round(max(0.0, float(vals[i])), 2),
+                    "lower_bound": round(max(0.0, float(ci[i][0])), 2),
+                    "upper_bound": round(max(0.0, float(ci[i][1])), 2),
+                    "confidence": 88.0,
+                    "mape": None,
+                }
+                for i, p in enumerate(future_periods)
+            ]
+        except Exception:
+            return ExponentialSmoothingStrategy().forecast(df, horizon)
+
+
 # ── Concrete Strategy 3: Prophet ─────────────────────────────────────────────
 
 class ProphetStrategy(BaseForecastStrategy):

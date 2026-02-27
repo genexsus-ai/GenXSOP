@@ -8,6 +8,9 @@ import type {
   ForecastRecommendationResponse,
   ForecastDiagnostics,
   ForecastDriftAlert,
+  ForecastSandboxResponse,
+  ForecastPromoteResponse,
+  ForecastModelType,
 } from '@/types'
 
 /**
@@ -124,6 +127,29 @@ export const forecastService = {
 
   async getModels() {
     const res = await api.get('/forecasting/models')
+    return res.data
+  },
+
+  async runSandbox(data: { product_id: number; horizon_months?: number; model_types?: ForecastModelType[] }): Promise<ForecastSandboxResponse> {
+    const res = await api.post<ForecastSandboxResponse>('/forecasting/sandbox/run', null, {
+      params: {
+        product_id: data.product_id,
+        horizon: data.horizon_months ?? 6,
+        model_types: data.model_types,
+      },
+    })
+    return res.data
+  },
+
+  async promoteSandboxOption(data: { product_id: number; selected_model: ForecastModelType; horizon_months?: number; notes?: string }): Promise<ForecastPromoteResponse> {
+    const res = await api.post<ForecastPromoteResponse>('/forecasting/sandbox/promote', null, {
+      params: {
+        product_id: data.product_id,
+        selected_model: data.selected_model,
+        horizon: data.horizon_months ?? 6,
+        notes: data.notes,
+      },
+    })
     return res.data
   },
 

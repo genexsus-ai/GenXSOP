@@ -196,7 +196,10 @@ export interface UpdateInventoryRequest {
 
 export type ForecastModelType =
   | 'moving_average'
+  | 'ewma'
   | 'exp_smoothing'
+  | 'seasonal_naive'
+  | 'arima'
   | 'prophet'
 
 export interface Forecast {
@@ -281,6 +284,46 @@ export interface GenerateForecastResponse {
 export interface ForecastRecommendationResponse {
   product_id: number
   diagnostics?: ForecastDiagnostics
+}
+
+export interface ForecastSandboxOption {
+  model_type: ForecastModelType
+  display_name: string
+  score: number
+  metrics?: Partial<ForecastAccuracy>
+  forecast: Array<{
+    period: string
+    predicted_qty: number
+    lower_bound?: number | null
+    upper_bound?: number | null
+    confidence?: number | null
+  }>
+}
+
+export interface ForecastSandboxResponse {
+  product_id: number
+  horizon: number
+  history_months: number
+  recommended_model?: ForecastModelType
+  advisor?: {
+    confidence?: number
+    reason?: string
+    advisor_enabled?: boolean
+    fallback_used?: boolean
+    warnings?: string[]
+    conservative_model?: string
+    aggressive_model?: string
+    option_summaries?: Record<string, string>
+  }
+  options: ForecastSandboxOption[]
+}
+
+export interface ForecastPromoteResponse {
+  product_id: number
+  selected_model: ForecastModelType
+  records_promoted: number
+  periods: string[]
+  advisor?: ForecastSandboxResponse['advisor']
 }
 
 // ── Scenario ──────────────────────────────────────────────────────────────────

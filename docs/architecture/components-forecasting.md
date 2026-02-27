@@ -4,6 +4,8 @@ This document zooms into the **Forecasting** domain and shows the major backend 
 
 > Why forecasting? It demonstrates GenXSOP’s core patterns clearly: **Router → Service → Repository**, plus **Strategy/Factory** for ML and **EventBus** for audit.
 
+This component now also supports a **sandbox-first planning flow** where planners compare multiple model outputs, get LLM-assisted recommendations, and explicitly promote a selected option into demand plans.
+
 ## Component diagram
 
 ```mermaid
@@ -19,6 +21,7 @@ flowchart TB
   %% Domain/service layer
   subgraph Domain[Forecasting domain]
     FS["services/forecast_service.py<br/>ForecastService"]
+    FAS["services/forecast_advisor_service.py<br/>ForecastAdvisorService"]
     DPR["repositories/demand_repository.py<br/>DemandPlanRepository"]
     FOR["repositories/forecast_repository.py<br/>ForecastRepository"]
   end
@@ -28,7 +31,10 @@ flowchart TB
     FFactory["ml/factory.py<br/>ForecastModelFactory"]
     FContext["ml/strategies.py<br/>ForecastContext"]
     MAS[MovingAverageStrategy]
+    EWMA[EWMAStrategy]
     ESS[ExponentialSmoothingStrategy]
+    SNS[SeasonalNaiveStrategy]
+    ARIMA[ARIMAStrategy]
     PS[ProphetStrategy]
     AD["ml/anomaly_detection.py<br/>AnomalyDetector"]
   end
@@ -55,10 +61,15 @@ flowchart TB
   DPR --> DemandTbl
   DemandTbl --> DB
 
+  FS --> FAS
+
   FS --> FFactory
   FFactory --> FContext
   FContext --> MAS
+  FContext --> EWMA
   FContext --> ESS
+  FContext --> SNS
+  FContext --> ARIMA
   FContext --> PS
 
   FS --> FOR
@@ -112,8 +123,45 @@ sequenceDiagram
 - Runs `AnomalyDetector.detect(values)`.
 - Returns indices/periods considered anomalous.
 
+### Sandbox compare + promote (`POST /api/v1/forecasting/sandbox/run`, `POST /api/v1/forecasting/sandbox/promote`)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant SPA as React SPA
+  participant R as Forecasting Router
+  participant S as ForecastService
+  participant DR as DemandPlanRepository
+  participant F as ForecastModelFactory
+  participant C as ForecastContext
+  participant A as ForecastAdvisorService
+
+  SPA->>R: POST /forecasting/sandbox/run
+  R->>S: run_sandbox(product_id, horizon, model_types?)
+  S->>DR: get_with_actuals(product_id)
+  DR-->>S: demand history
+  loop for each candidate model
+    S->>F: create_context(model)
+    F-->>S: ForecastContext(strategy)
+    S->>C: execute(df, horizon)
+    C-->>S: model predictions
+  end
+  S->>A: compare_options(default_model, flags, options)
+  A-->>S: ranked options + recommendation reason
+  S-->>R: sandbox payload (options + advisor)
+  R-->>SPA: JSON
+
+  SPA->>R: POST /forecasting/sandbox/promote
+  R->>S: promote_sandbox_option_to_demand_plan(...)
+  S->>DR: upsert demand plans for selected option periods
+  S-->>R: promotion summary
+  R-->>SPA: JSON
+```
+
 ## Key design notes
 
 - **Strategy interface** (`BaseForecastStrategy`) is the unit of extensibility.
 - The **Factory registry** enables adding new models without changing service code.
 - Publishing `ForecastGeneratedEvent` enables audit/telemetry without coupling.
+- Sandbox flow introduces a planner-controlled, non-destructive experimentation step before demand plan adoption.
+- LLM recommendations remain advisory with deterministic fallback to scored model ranking.

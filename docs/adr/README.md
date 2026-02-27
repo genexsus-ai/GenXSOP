@@ -9,6 +9,7 @@ This folder contains **Architecture Decision Records** for GenXSOP.
 - [ADR-0003: Forecasting extensibility via Strategy + Factory](ADR-0003-forecasting-strategy-factory.md)
 - [ADR-0004: EventBus (Observer) for audit logging](ADR-0004-eventbus-audit-logging.md)
 - [ADR-0005: Axios interceptors for auth + error handling](ADR-0005-axios-interceptors.md)
+- [ADR-0006: Forecast sandbox + user-selected demand adoption](ADR-0006-forecast-sandbox-demand-adoption.md)
 
 ## ADR template
 

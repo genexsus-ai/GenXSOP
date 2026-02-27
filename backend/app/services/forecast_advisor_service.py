@@ -37,7 +37,14 @@ class ForecastAdvisorDecision:
 class ForecastAdvisorService:
     """LLM advisor wrapper with strict deterministic fallback."""
 
-    _supported_models = {"moving_average", "exp_smoothing", "prophet"}
+    _supported_models = {
+        "moving_average",
+        "ewma",
+        "exp_smoothing",
+        "seasonal_naive",
+        "arima",
+        "prophet",
+    }
 
     def __init__(self) -> None:
         self._enabled = bool(settings.OPENAI_API_KEY)
@@ -55,8 +62,8 @@ class ForecastAdvisorService:
             return ForecastAdvisorDecision(
                 recommended_model=requested_model,
                 confidence=1.0,
-                reason="Model explicitly requested by user.",
-                advisor_enabled=self._enabled,
+                reason="Using user-selected model.",
+                advisor_enabled=False,
                 fallback_used=False,
                 warnings=[],
             )
@@ -113,7 +120,7 @@ class ForecastAdvisorService:
         runtime = AgentRuntime(agent=agent, openai_api_key=settings.OPENAI_API_KEY)
 
         task = (
-            "Choose one model from ['moving_average','exp_smoothing','prophet'] based on backtest metrics. "
+            "Choose one model from ['moving_average','ewma','exp_smoothing','seasonal_naive','arima','prophet'] based on backtest metrics. "
             "Respond ONLY valid JSON with keys: recommended_model (string), confidence (0..1), reason (string). "
             f"Default model if uncertain: {default_model}.\n"
             f"History months: {history_months}.\n"
@@ -141,6 +148,110 @@ class ForecastAdvisorService:
             fallback_used=False,
             warnings=[],
         )
+
+    def compare_options(
+        self,
+        *,
+        default_model: str,
+        history_months: int,
+        data_quality_flags: List[str],
+        options: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Rank sandbox options and return recommendation narrative."""
+        if not options:
+            return {
+                "recommended_model": default_model,
+                "confidence": 0.5,
+                "reason": "No options available to compare.",
+                "advisor_enabled": False,
+                "fallback_used": True,
+                "warnings": ["no_options"],
+            }
+
+        ranked = sorted(options, key=lambda o: float(o.get("score", 999999.0)))
+        deterministic_best = ranked[0]["model_type"]
+
+        if not self._enabled:
+            return {
+                "recommended_model": deterministic_best,
+                "confidence": 0.72,
+                "reason": "LLM unavailable; selected lowest composite error score.",
+                "advisor_enabled": False,
+                "fallback_used": True,
+                "warnings": ["llm_unavailable"],
+                "ranked": ranked,
+            }
+
+        try:
+            llm = self._compare_options_with_genxai(
+                default_model=default_model,
+                history_months=history_months,
+                data_quality_flags=data_quality_flags,
+                options=ranked,
+            )
+            picked = str(llm.get("recommended_model", deterministic_best))
+            if picked not in {o["model_type"] for o in ranked}:
+                picked = deterministic_best
+
+            confidence = max(0.0, min(1.0, float(llm.get("confidence", 0.75))))
+            return {
+                "recommended_model": picked,
+                "confidence": confidence,
+                "reason": str(llm.get("reason", "Recommendation generated from multi-model comparison.")),
+                "advisor_enabled": True,
+                "fallback_used": False,
+                "warnings": [],
+                "ranked": ranked,
+                "option_summaries": llm.get("option_summaries", {}),
+                "conservative_model": llm.get("conservative_model"),
+                "aggressive_model": llm.get("aggressive_model"),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "recommended_model": deterministic_best,
+                "confidence": 0.65,
+                "reason": f"LLM comparison failed; used deterministic ranking. ({exc})",
+                "advisor_enabled": True,
+                "fallback_used": True,
+                "warnings": ["advisor_runtime_error"],
+                "ranked": ranked,
+            }
+
+    def _compare_options_with_genxai(
+        self,
+        *,
+        default_model: str,
+        history_months: int,
+        data_quality_flags: List[str],
+        options: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        from genxai import AgentConfig, AgentRuntime, AssistantAgent
+
+        cfg = AgentConfig(
+            role="Forecast Sandbox Comparator",
+            goal="Rank candidate forecasting options and explain tradeoffs for demand planners.",
+            backstory="You are a senior S&OP advisor balancing service level, inventory risk, and forecast accuracy.",
+            llm_provider="openai",
+            llm_model=settings.GENXAI_LLM_MODEL,
+            llm_temperature=settings.GENXAI_LLM_TEMPERATURE,
+            max_execution_time=settings.GENXAI_MAX_EXECUTION_TIME_SECONDS,
+            max_iterations=2,
+            verbose=False,
+        )
+        agent = AssistantAgent(id="forecast-sandbox-comparator", config=cfg)
+        runtime = AgentRuntime(agent=agent, openai_api_key=settings.OPENAI_API_KEY)
+
+        task = (
+            "You are comparing sandbox forecast options. Respond ONLY JSON with keys: "
+            "recommended_model (string), confidence (0..1), reason (string), "
+            "conservative_model (string), aggressive_model (string), option_summaries (object model_id->string). "
+            f"Default model if uncertain: {default_model}. "
+            f"History months: {history_months}. "
+            f"Data quality flags: {data_quality_flags}. "
+            f"Options: {json.dumps(options)}"
+        )
+        result = runtime.execute(task=task)
+        return self._extract_json_payload(result)
 
     @staticmethod
     def _extract_json_payload(result: Dict[str, Any]) -> Dict[str, Any]:

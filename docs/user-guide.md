@@ -196,6 +196,15 @@ Navigate: **Sidebar → Forecasting**
 
 - `GET /api/v1/forecasting/models`
 
+Current models include:
+
+- Moving Average
+- EWMA
+- Exponential Smoothing
+- Seasonal Naive
+- ARIMA
+- Prophet
+
 ### Generate a forecast
 
 1. Pick a product.
@@ -206,6 +215,26 @@ Navigate: **Sidebar → Forecasting**
 API:
 
 - `POST /api/v1/forecasting/generate?product_id=1&horizon=6&model_type=prophet`
+
+### Run sandbox comparison (recommended)
+
+Use sandbox when you want to compare multiple forecasting methods before committing to demand planning.
+
+1. Enter Product + Horizon.
+2. Click **Run Sandbox**.
+3. Review side-by-side model metrics and AI recommendation reason.
+4. Select preferred model and click **Promote to Demand Plan**.
+
+APIs:
+
+- `POST /api/v1/forecasting/sandbox/run?product_id=1&horizon=6`
+- `POST /api/v1/forecasting/sandbox/promote?product_id=1&selected_model=arima&horizon=6`
+
+What promotion does:
+
+- Applies selected model output into demand plans for the forecast periods.
+- Preserves planner control (human-in-the-loop decision).
+- Stores decision context in plan notes/version history.
 
 ### View results
 

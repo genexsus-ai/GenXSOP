@@ -8,6 +8,7 @@ This document summarizes the recent forecasting improvements implemented in GenX
 2. **Improved forecasting diagnostics** and richer accuracy metrics
 3. **Enhanced forecasting UI visualizations**
 4. **Test and validation coverage**
+5. **Forecast sandbox experimentation + demand-plan promotion flow**
 
 The objective was to improve forecasting quality, explainability, and operational usability while preserving deterministic fallback behavior.
 
@@ -25,7 +26,10 @@ Implemented a dedicated advisor service that:
 - Reads API credentials from environment (`OPENAI_API_KEY`)
 - Recommends one of supported models:
   - `moving_average`
+  - `ewma`
   - `exp_smoothing`
+  - `seasonal_naive`
+  - `arima`
   - `prophet`
 - Returns structured recommendation metadata:
   - `recommended_model`
@@ -53,6 +57,8 @@ The advisor is **advisory-only** and safe by default:
 Added:
 
 - `generate_forecast_with_diagnostics(...)`
+- `run_sandbox(...)` for multi-model side-by-side experimentation
+- `promote_sandbox_option_to_demand_plan(...)` for user-selected demand-plan adoption
 - Backtest-style candidate scoring across available models
 - Data quality flags generation (e.g., short history, missing months, volatility)
 - Advisor-assisted model selection pipeline:
@@ -71,6 +77,16 @@ New diagnostics payload includes:
 - `history_months`
 - `candidate_metrics`
 - `data_quality_flags`
+
+### Sandbox comparison payload
+
+`run_sandbox(...)` returns:
+
+- `recommended_model`
+- `advisor` object with LLM comparison rationale
+- `options[]` (each model forecast + metrics + composite score)
+
+This enables planners to experiment in a non-destructive workflow before committing to demand plans.
 
 #### Accuracy Metrics Upgrade
 
@@ -100,6 +116,13 @@ New diagnostics payload includes:
 
 This enables frontend explainability and better planner confidence in generated output.
 
+Added new endpoints:
+
+- `POST /api/v1/forecasting/sandbox/run`
+  - Executes multi-model sandbox run (including LLM-assisted ranking)
+- `POST /api/v1/forecasting/sandbox/promote`
+  - Promotes selected sandbox model output into demand planning records
+
 ---
 
 ### 4) Configuration Updates
@@ -122,9 +145,14 @@ Added forecasting/LLM config keys:
 **File:** `frontend/src/types/index.ts`
 
 - Forecast model type aligned to backend-supported models
+  - `moving_average`, `ewma`, `exp_smoothing`, `seasonal_naive`, `arima`, `prophet`
 - Added diagnostics types:
   - `ForecastDiagnostics`
   - `GenerateForecastResponse`
+- Added sandbox types:
+  - `ForecastSandboxResponse`
+  - `ForecastSandboxOption`
+  - `ForecastPromoteResponse`
 - Extended `ForecastAccuracy` with `wape`, `sample_count`, `avg_mape`
 
 #### Service updates
@@ -135,6 +163,9 @@ Added forecasting/LLM config keys:
   - `forecasts`
   - `diagnostics`
 - Accuracy normalization updated for richer backend metrics
+- Added:
+  - `runSandbox(...)`
+  - `promoteSandboxOption(...)`
 
 #### Forecasting page updates
 
@@ -143,6 +174,8 @@ Added forecasting/LLM config keys:
 Added:
 
 - **AI Advisor Decision card** (model, confidence, reason)
+- **Forecast Sandbox comparator** (score/metrics per candidate model)
+- **Promote to Demand Plan** action per selected model option
 - **Forecast curve chart** with confidence band
 - **Model quality chart** (MAPE / WAPE / Hit Rate)
 - Updated model selector to supported models only
@@ -156,6 +189,12 @@ Added:
 - **Backend:** `backend/tests/unit/test_forecast_advisor_service.py`
   - Explicit model usage behavior
   - LLM-disabled fallback behavior
+  - Sandbox compare-options fallback ranking behavior
+
+- **Backend:** `backend/tests/unit/test_ml_strategies.py`
+  - EWMA strategy tests
+  - Seasonal Naive strategy tests
+  - ARIMA strategy tests
 
 - **Frontend:** `frontend/src/services/forecastService.test.ts`
   - Generate response diagnostics mapping
