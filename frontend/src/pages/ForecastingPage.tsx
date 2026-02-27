@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Brain, Play, TrendingUp, Target } from 'lucide-react'
+import { AlertTriangle, Brain, Play, TrendingUp, Target } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
@@ -7,7 +7,7 @@ import { KPICard } from '@/components/common/KPICard'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
-import type { Forecast, ForecastAccuracy, ForecastDiagnostics, GenerateForecastRequest } from '@/types'
+import type { Forecast, ForecastAccuracy, ForecastDiagnostics, ForecastDriftAlert, GenerateForecastRequest } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -40,6 +40,7 @@ export function ForecastingPage() {
   const [generating, setGenerating] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
   const [diagnostics, setDiagnostics] = useState<ForecastDiagnostics | null>(null)
+  const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
   const [form, setForm] = useState<Partial<GenerateForecastRequest>>({
     model_type: 'prophet',
     horizon_months: 6,
@@ -52,8 +53,10 @@ export function ForecastingPage() {
         forecastService.getResults({ page_size: 50 }),
         forecastService.getAccuracy(),
       ])
+      const drift = await forecastService.getDriftAlerts({ threshold_pct: 8, min_points: 6 })
       setForecasts(fRes.items)
       setAccuracy(aRes)
+      setDriftAlerts(drift)
     } catch {
       // handled
     } finally {
@@ -155,6 +158,26 @@ export function ForecastingPage() {
         </Card>
       )}
 
+      {driftAlerts.length > 0 && (
+        <Card title="Forecast Drift Alerts" subtitle="Month-over-month accuracy degradation detected">
+          <div className="space-y-2">
+            {driftAlerts.slice(0, 5).map((a, idx) => (
+              <div key={`${a.product_id}-${a.model_type}-${idx}`} className="flex items-center justify-between p-3 rounded-lg border border-amber-200 bg-amber-50">
+                <div className="flex items-center gap-2 min-w-0">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <p className="text-sm text-amber-900 truncate">
+                    Product #{a.product_id} · {a.model_type.replace(/_/g, ' ')} degraded by {formatPercent(a.degradation_pct)}
+                  </p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${a.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {a.severity}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Forecast Results */}
         <Card title="Recent Forecasts" subtitle={`${forecasts.length} results`}>
@@ -186,6 +209,11 @@ export function ForecastingPage() {
                         <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
                           {f.model_type.replace(/_/g, ' ')}
                         </span>
+                        {f.fallback_used ? (
+                          <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full" title={f.selection_reason ?? 'Advisor fallback used'}>
+                            fallback
+                          </span>
+                        ) : null}
                       </td>
                       <td className="py-2.5 tabular-nums pr-3">{formatNumber(f.predicted_qty)}</td>
                       <td className="py-2.5 tabular-nums">

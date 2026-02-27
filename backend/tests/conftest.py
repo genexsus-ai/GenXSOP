@@ -13,6 +13,7 @@ from datetime import date
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.database import Base, get_db
@@ -29,6 +30,7 @@ TEST_DATABASE_URL = "sqlite:///:memory:"
 engine = create_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -67,7 +69,6 @@ def admin_user(db: Session) -> User:
     """Create and persist an admin user."""
     user = User(
         email="admin@genxsop.com",
-        username="admin",
         hashed_password=get_password_hash("Admin@123"),
         full_name="Admin User",
         role="admin",
@@ -83,7 +84,6 @@ def admin_user(db: Session) -> User:
 def demand_planner_user(db: Session) -> User:
     user = User(
         email="planner@genxsop.com",
-        username="planner",
         hashed_password=get_password_hash("Planner@123"),
         full_name="Demand Planner",
         role="demand_planner",
@@ -98,12 +98,12 @@ def demand_planner_user(db: Session) -> User:
 @pytest.fixture
 def admin_token(admin_user: User) -> str:
     """JWT token for the admin user."""
-    return create_access_token(data={"sub": admin_user.email})
+    return create_access_token(data={"sub": str(admin_user.id)})
 
 
 @pytest.fixture
 def planner_token(demand_planner_user: User) -> str:
-    return create_access_token(data={"sub": demand_planner_user.email})
+    return create_access_token(data={"sub": str(demand_planner_user.id)})
 
 
 @pytest.fixture
@@ -134,7 +134,7 @@ def product(db: Session, category: Category) -> Product:
         name="Test Product",
         category_id=category.id,
         unit_cost=Decimal("100.00"),
-        unit_price=Decimal("150.00"),
+        selling_price=Decimal("150.00"),
         lead_time_days=14,
         status="active",
     )

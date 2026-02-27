@@ -5,6 +5,7 @@ Uses Strategy + Factory patterns for ML model selection.
 from typing import Optional, List, Dict, Any
 from datetime import date
 from math import sqrt
+import json
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -109,6 +110,14 @@ class ForecastService:
                 upper_bound=pred["upper_bound"],
                 confidence=pred["confidence"],
                 mape=pred.get("mape"),
+                model_version="genxai-advisor-v1",
+                features_used=json.dumps({
+                    "selection_reason": advisor.reason,
+                    "advisor_confidence": advisor.confidence,
+                    "advisor_enabled": advisor.advisor_enabled,
+                    "fallback_used": advisor.fallback_used,
+                    "warnings": advisor.warnings,
+                }),
             )
             created.append(self._repo.create(forecast))
 
@@ -208,6 +217,49 @@ class ForecastService:
     def list_models(self) -> List[dict]:
         """Return all available forecasting models."""
         return ForecastModelFactory.list_models()
+
+    def get_accuracy_drift_alerts(self, threshold_pct: float = 10.0, min_points: int = 6) -> List[dict]:
+        """Detect month-over-month degradation by comparing recent vs prior error windows."""
+        alerts: List[dict] = []
+        model_ids = [m["id"] for m in ForecastModelFactory.list_models()]
+        product_ids = {f.product_id for f in self._repo.list_filtered()}
+
+        for product_id in product_ids:
+            plans = self._demand_repo.get_all_for_product(product_id)
+            actuals = {str(p.period): float(p.actual_qty) for p in plans if p.actual_qty is not None}
+
+            for model_id in model_ids:
+                forecasts = self._repo.list_filtered(product_id=product_id, model_type=model_id)
+                series: List[float] = []
+                for f in forecasts:
+                    actual = actuals.get(str(f.period))
+                    if actual is None or actual == 0:
+                        continue
+                    ape = abs((float(f.predicted_qty) - actual) / actual) * 100.0
+                    series.append(ape)
+
+                if len(series) < min_points:
+                    continue
+
+                window = max(3, min(6, len(series) // 2))
+                if len(series) < window * 2:
+                    continue
+
+                previous_avg = sum(series[-2 * window:-window]) / window
+                recent_avg = sum(series[-window:]) / window
+                degradation = recent_avg - previous_avg
+
+                if degradation >= threshold_pct:
+                    alerts.append({
+                        "product_id": product_id,
+                        "model_type": model_id,
+                        "previous_mape": round(previous_avg, 4),
+                        "recent_mape": round(recent_avg, 4),
+                        "degradation_pct": round(degradation, 4),
+                        "severity": "high" if degradation >= threshold_pct * 2 else "medium",
+                    })
+
+        return sorted(alerts, key=lambda a: a["degradation_pct"], reverse=True)
 
     def _run_backtests(self, df: pd.DataFrame) -> List[dict]:
         metrics: List[dict] = []

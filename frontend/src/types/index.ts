@@ -217,6 +217,7 @@ export interface Forecast {
   advisor_confidence?: number
   advisor_enabled?: boolean
   fallback_used?: boolean
+  warnings?: string[]
   created_at: string
 }
 
@@ -250,6 +251,15 @@ export interface ForecastDiagnostics {
   history_months?: number
   candidate_metrics?: ForecastAccuracy[]
   data_quality_flags?: string[]
+}
+
+export interface ForecastDriftAlert {
+  product_id: number
+  model_type: string
+  previous_mape: number
+  recent_mape: number
+  degradation_pct: number
+  severity: 'medium' | 'high'
 }
 
 export interface GenerateForecastResponse {

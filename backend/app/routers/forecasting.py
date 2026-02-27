@@ -222,8 +222,17 @@ def list_forecast_results(
         product_id=product_id, model_type=model_type,
         period_from=period_from, period_to=period_to,
     )
+    def _parse_features(raw: Optional[str]) -> dict:
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
     return [
-        {
+        ({
             "id": f.id,
             "product_id": f.product_id,
             "model_type": f.model_type,
@@ -233,7 +242,13 @@ def list_forecast_results(
             "upper_bound": float(f.upper_bound) if f.upper_bound else None,
             "confidence": float(f.confidence) if f.confidence else None,
             "mape": float(f.mape) if f.mape else None,
-        }
+        } | {
+            "selection_reason": _parse_features(f.features_used).get("selection_reason"),
+            "advisor_confidence": _parse_features(f.features_used).get("advisor_confidence"),
+            "advisor_enabled": _parse_features(f.features_used).get("advisor_enabled"),
+            "fallback_used": _parse_features(f.features_used).get("fallback_used"),
+            "warnings": _parse_features(f.features_used).get("warnings"),
+        })
         for f in results
     ]
 
@@ -245,6 +260,20 @@ def forecast_accuracy(
     _: User = Depends(get_current_user),
 ):
     return service.get_accuracy_metrics(product_id=product_id)
+
+
+@router.get("/accuracy/drift-alerts")
+def forecast_accuracy_drift_alerts(
+    threshold_pct: float = Query(10.0, ge=0.0, le=100.0),
+    min_points: int = Query(6, ge=3, le=60),
+    service: ForecastService = Depends(get_forecast_service),
+    _: User = Depends(get_current_user),
+):
+    """Detect month-over-month forecast degradation alerts."""
+    return service.get_accuracy_drift_alerts(
+        threshold_pct=threshold_pct,
+        min_points=min_points,
+    )
 
 
 @router.post("/anomalies/detect")

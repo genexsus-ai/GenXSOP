@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   GenerateForecastResponse,
   ForecastDiagnostics,
+  ForecastDriftAlert,
 } from '@/types'
 
 /**
@@ -91,6 +92,7 @@ export const forecastService = {
       advisor_confidence: res.data.diagnostics?.advisor_confidence,
       advisor_enabled: res.data.diagnostics?.advisor_enabled,
       fallback_used: res.data.diagnostics?.fallback_used,
+      warnings: res.data.diagnostics?.warnings,
     }))
 
     return { forecasts, diagnostics: res.data.diagnostics }
@@ -126,6 +128,11 @@ export const forecastService = {
       }))
     }
     return normalizeAccuracy((data as AccuracyResponseItem[]) ?? [])
+  },
+
+  async getDriftAlerts(params?: { threshold_pct?: number; min_points?: number }): Promise<ForecastDriftAlert[]> {
+    const res = await api.get<ForecastDriftAlert[]>('/forecasting/accuracy/drift-alerts', { params })
+    return res.data ?? []
   },
 
   async detectAnomalies(productId: number) {
