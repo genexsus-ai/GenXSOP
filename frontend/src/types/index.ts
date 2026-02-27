@@ -278,6 +278,11 @@ export interface GenerateForecastResponse {
   }>
 }
 
+export interface ForecastRecommendationResponse {
+  product_id: number
+  diagnostics?: ForecastDiagnostics
+}
+
 // ── Scenario ──────────────────────────────────────────────────────────────────
 
 export type ScenarioType = 'what_if' | 'best_case' | 'worst_case' | 'baseline'

@@ -68,6 +68,21 @@ def generate_forecast(
     }
 
 
+@router.post("/recommendation")
+def recommend_forecast_model(
+    product_id: int,
+    model_type: Optional[str] = None,
+    service: ForecastService = Depends(get_forecast_service),
+    _: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    """Get GenXAI advisor recommendation diagnostics without generating forecast records."""
+    payload = service.recommend_model(product_id=product_id, model_type=model_type)
+    return {
+        "product_id": product_id,
+        "diagnostics": payload.get("diagnostics", {}),
+    }
+
+
 @router.post("/generate-job")
 def generate_forecast_job(
     product_id: int,

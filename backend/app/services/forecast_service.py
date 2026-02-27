@@ -72,31 +72,13 @@ class ForecastService:
         """
         Generate forecast with model diagnostics and advisor metadata.
         """
-        history = self._demand_repo.get_with_actuals(product_id)
-        if len(history) < 3:
-            raise to_http_exception(
-                InsufficientDataException(required=3, available=len(history), operation="forecast generation")
-            )
-
-        df = pd.DataFrame([
-            {"ds": pd.Timestamp(h.period), "y": float(h.actual_qty)}
-            for h in history
-        ])
-
-        candidate_metrics = self._run_backtests(df)
-        default_model = self._select_default_model(len(history), candidate_metrics)
-        data_quality_flags = self._data_quality_flags(df)
-        advisor = self._advisor.recommend_model(
-            requested_model=model_type,
-            default_model=default_model,
-            candidate_metrics=candidate_metrics,
-            history_months=len(history),
-            data_quality_flags=data_quality_flags,
-        )
+        advisor_payload = self.recommend_model(product_id=product_id, model_type=model_type)
+        advisor = advisor_payload["advisor"]
 
         context = ForecastModelFactory.create_context(advisor.recommended_model)
+        history_df = advisor_payload["history_df"]
 
-        predictions = context.execute(df, horizon)
+        predictions = context.execute(history_df, horizon)
         created = []
         for pred in predictions:
             # Upsert: delete existing forecast for same product/model/period
@@ -130,9 +112,9 @@ class ForecastService:
             "advisor_enabled": advisor.advisor_enabled,
             "fallback_used": advisor.fallback_used,
             "warnings": advisor.warnings,
-            "history_months": len(history),
-            "candidate_metrics": candidate_metrics,
-            "data_quality_flags": data_quality_flags,
+            "history_months": advisor_payload["history_months"],
+            "candidate_metrics": advisor_payload["candidate_metrics"],
+            "data_quality_flags": advisor_payload["data_quality_flags"],
         }
 
         self._db.add(ForecastRunAudit(
@@ -145,11 +127,11 @@ class ForecastService:
             fallback_used=advisor.fallback_used,
             advisor_confidence=advisor.confidence,
             selection_reason=advisor.reason,
-            history_months=len(history),
+            history_months=advisor_payload["history_months"],
             records_created=len(created),
             warnings_json=json.dumps(advisor.warnings),
-            candidate_metrics_json=json.dumps(candidate_metrics),
-            data_quality_flags_json=json.dumps(data_quality_flags),
+            candidate_metrics_json=json.dumps(advisor_payload["candidate_metrics"]),
+            data_quality_flags_json=json.dumps(advisor_payload["data_quality_flags"]),
         ))
         self._db.commit()
 
@@ -163,6 +145,53 @@ class ForecastService:
         return {
             "forecasts": created,
             "diagnostics": diagnostics,
+        }
+
+    def recommend_model(self, product_id: int, model_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Return advisor recommendation diagnostics without generating forecast records.
+        """
+        history = self._demand_repo.get_with_actuals(product_id)
+        if len(history) < 3:
+            raise to_http_exception(
+                InsufficientDataException(required=3, available=len(history), operation="forecast recommendation")
+            )
+
+        df = pd.DataFrame([
+            {"ds": pd.Timestamp(h.period), "y": float(h.actual_qty)}
+            for h in history
+        ])
+
+        candidate_metrics = self._run_backtests(df)
+        default_model = self._select_default_model(len(history), candidate_metrics)
+        data_quality_flags = self._data_quality_flags(df)
+        advisor = self._advisor.recommend_model(
+            requested_model=model_type,
+            default_model=default_model,
+            candidate_metrics=candidate_metrics,
+            history_months=len(history),
+            data_quality_flags=data_quality_flags,
+        )
+
+        diagnostics = {
+            "selected_model": advisor.recommended_model,
+            "selection_reason": advisor.reason,
+            "advisor_confidence": advisor.confidence,
+            "advisor_enabled": advisor.advisor_enabled,
+            "fallback_used": advisor.fallback_used,
+            "warnings": advisor.warnings,
+            "history_months": len(history),
+            "candidate_metrics": candidate_metrics,
+            "data_quality_flags": data_quality_flags,
+        }
+
+        return {
+            "diagnostics": diagnostics,
+            "advisor": advisor,
+            "history_df": df,
+            "history_months": len(history),
+            "candidate_metrics": candidate_metrics,
+            "data_quality_flags": data_quality_flags,
         }
 
     def get_accuracy_metrics(self, product_id: Optional[int] = None) -> List[dict]:

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Play, TrendingUp, Target } from 'lucide-react'
+import { AlertTriangle, Brain, Play, Sparkles, TrendingUp, Target } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
@@ -38,6 +38,7 @@ export function ForecastingPage() {
   const [accuracy, setAccuracy] = useState<ForecastAccuracy[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [recommending, setRecommending] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
   const [diagnostics, setDiagnostics] = useState<ForecastDiagnostics | null>(null)
   const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
@@ -85,6 +86,28 @@ export function ForecastingPage() {
     }
   }
 
+  const handleRecommend = async () => {
+    if (!form.product_id) {
+      toast.error('Please enter a product ID')
+      setShowGenerate(true)
+      return
+    }
+
+    setRecommending(true)
+    try {
+      const result = await forecastService.getRecommendation({
+        product_id: form.product_id,
+        model_type: form.model_type,
+      })
+      setDiagnostics(result.diagnostics ?? null)
+      toast.success('Recommendation received')
+    } catch {
+      // handled
+    } finally {
+      setRecommending(false)
+    }
+  }
+
   const avgMape = accuracy.length > 0
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
@@ -120,9 +143,14 @@ export function ForecastingPage() {
           <p className="text-sm text-gray-500 mt-0.5">ML-powered demand forecasting</p>
         </div>
         {canGenerate && (
-          <Button icon={<Play />} onClick={() => setShowGenerate(true)}>
-            Generate Forecast
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" icon={<Sparkles />} loading={recommending} onClick={handleRecommend}>
+              Get Recommendation
+            </Button>
+            <Button icon={<Play />} onClick={() => setShowGenerate(true)}>
+              Generate Forecast
+            </Button>
+          </div>
         )}
       </div>
 
@@ -317,6 +345,9 @@ export function ForecastingPage() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowGenerate(false)}>Cancel</Button>
+            <Button variant="outline" loading={recommending} onClick={handleRecommend} icon={<Sparkles />} disabled={!canGenerate}>
+              Get Recommendation
+            </Button>
             <Button loading={generating} onClick={handleGenerate} icon={<Brain />} disabled={!canGenerate}>
               Generate
             </Button>

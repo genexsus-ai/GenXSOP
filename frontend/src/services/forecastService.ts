@@ -5,6 +5,7 @@ import type {
   ForecastAccuracy,
   PaginatedResponse,
   GenerateForecastResponse,
+  ForecastRecommendationResponse,
   ForecastDiagnostics,
   ForecastDriftAlert,
 } from '@/types'
@@ -63,6 +64,16 @@ function normalizeAccuracy(items: AccuracyResponseItem[]): ForecastAccuracy[] {
 }
 
 export const forecastService = {
+  async getRecommendation(data: Pick<GenerateForecastRequest, 'product_id' | 'model_type'>): Promise<ForecastRecommendationResponse> {
+    const res = await api.post<ForecastRecommendationResponse>('/forecasting/recommendation', null, {
+      params: {
+        product_id: data.product_id,
+        model_type: data.model_type,
+      },
+    })
+    return res.data
+  },
+
   async generateForecast(data: GenerateForecastRequest): Promise<GenerateForecastResult> {
     const res = await api.post<GenerateForecastResponse>('/forecasting/generate', null, {
       params: {
