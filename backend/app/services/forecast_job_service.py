@@ -11,19 +11,22 @@ Note:
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Optional, List
 from uuid import uuid4
 
 from app.database import SessionLocal
+from app.config import settings
 from app.models.forecast_job import ForecastJob
 from app.services.forecast_service import ForecastService
+from app.utils.events import get_event_bus, ForecastJobsCleanedEvent
 
 
 class ForecastJobService:
     def __init__(self, max_workers: int = 2):
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="forecast-worker")
+        self._bus = get_event_bus()
 
     def enqueue_forecast(
         self,
@@ -112,6 +115,86 @@ class ForecastJobService:
 
         self._executor.submit(self._run_forecast_job, new_job.job_id)
         return new_job
+
+    def get_job_metrics(self) -> dict:
+        db = SessionLocal()
+        try:
+            jobs = db.query(ForecastJob).all()
+            total = len(jobs)
+
+            by_status = {
+                "queued": 0,
+                "running": 0,
+                "completed": 0,
+                "failed": 0,
+                "cancelled": 0,
+            }
+            for job in jobs:
+                if job.status in by_status:
+                    by_status[job.status] += 1
+
+            durations_ms = []
+            for job in jobs:
+                if job.started_at and job.completed_at:
+                    durations_ms.append((job.completed_at - job.started_at).total_seconds() * 1000)
+
+            avg_duration_ms = round(sum(durations_ms) / len(durations_ms), 2) if durations_ms else None
+
+            cutoff = datetime.utcnow() - timedelta(hours=24)
+            failed_last_24h = sum(
+                1 for job in jobs
+                if job.status == "failed" and job.completed_at and job.completed_at >= cutoff
+            )
+
+            queued_jobs = [job for job in jobs if job.status == "queued" and job.created_at]
+            oldest_queued_age_seconds = None
+            if queued_jobs:
+                oldest_queued = min(queued_jobs, key=lambda j: j.created_at)
+                oldest_queued_age_seconds = round((datetime.utcnow() - oldest_queued.created_at).total_seconds(), 2)
+
+            return {
+                "total_jobs": total,
+                "by_status": by_status,
+                "avg_processing_time_ms": avg_duration_ms,
+                "failed_last_24h": failed_last_24h,
+                "oldest_queued_age_seconds": oldest_queued_age_seconds,
+            }
+        finally:
+            db.close()
+
+    def cleanup_old_jobs(self, retention_days: Optional[int] = None, requested_by: Optional[int] = None) -> dict:
+        days = retention_days or settings.FORECAST_JOB_RETENTION_DAYS
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        removable_statuses = ["completed", "failed", "cancelled"]
+
+        db = SessionLocal()
+        try:
+            query = (
+                db.query(ForecastJob)
+                .filter(ForecastJob.status.in_(removable_statuses))
+                .filter(ForecastJob.completed_at.isnot(None))
+                .filter(ForecastJob.completed_at < cutoff)
+            )
+            to_delete = query.count()
+            query.delete(synchronize_session=False)
+            db.commit()
+
+            result = {
+                "retention_days": days,
+                "cutoff": cutoff.isoformat(),
+                "deleted_jobs": to_delete,
+            }
+
+            self._bus.publish(ForecastJobsCleanedEvent(
+                retention_days=days,
+                deleted_jobs=to_delete,
+                cutoff_iso=cutoff.isoformat(),
+                user_id=requested_by,
+            ))
+
+            return result
+        finally:
+            db.close()
 
     def _run_forecast_job(self, job_id: str) -> None:
         db = SessionLocal()

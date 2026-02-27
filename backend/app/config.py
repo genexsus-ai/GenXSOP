@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ENABLE_SECURITY_HEADERS: bool = True
     STRICT_TRANSPORT_SECURITY_SECONDS: int = 31536000
     READINESS_CHECK_DATABASE: bool = True
+    FORECAST_JOB_RETENTION_DAYS: int = 30
 
     @property
     def cors_origins_list(self) -> List[str]:

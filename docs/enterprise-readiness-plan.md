@@ -83,6 +83,11 @@ Current state in repository:
 
 - Job metadata/status is persisted in `forecast_jobs` database table.
 - Result payload is stored as JSON text (`result_json`) and returned through job status API.
+- Operational job metrics endpoint is available at `/forecasting/jobs/metrics`.
+- Operational controls (`/jobs`, `/jobs/{id}/cancel`, `/jobs/{id}/retry`, `/jobs/metrics`) are restricted to ops roles (`admin`, `sop_coordinator`, `executive`).
+- Retention cleanup endpoint available: `/forecasting/jobs/cleanup` (ops roles), controlled by `FORECAST_JOB_RETENTION_DAYS`.
+- Lightweight maintenance runner added: `backend/app/services/forecast_job_maintenance.py` (`run_forecast_job_cleanup`) for cron/scheduler integration.
+- Initial migration file added: `backend/alembic/versions/20260227_0001_add_forecast_jobs_table.py`.
 
 ### Operational reference for implemented controls
 

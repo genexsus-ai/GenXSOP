@@ -64,6 +64,13 @@ class ForecastGeneratedEvent(DomainEvent):
     records_created: int = 0
 
 
+@dataclass
+class ForecastJobsCleanedEvent(DomainEvent):
+    retention_days: int = 0
+    deleted_jobs: int = 0
+    cutoff_iso: str = ""
+
+
 # ── Abstract Observer ─────────────────────────────────────────────────────────
 
 class EventHandler(ABC):
@@ -123,6 +130,8 @@ class AuditLogHandler(EventHandler):
             return f"status_change:{event.old_status}->{event.new_status}"
         if isinstance(event, ForecastGeneratedEvent):
             return "forecast_generated"
+        if isinstance(event, ForecastJobsCleanedEvent):
+            return "forecast_jobs_cleanup"
         return "unknown"
 
 

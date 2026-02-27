@@ -259,6 +259,30 @@ curl -s -X POST "http://localhost:8000/api/v1/forecasting/jobs/$JOB_ID/retry" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Get job operational metrics:
+
+```bash
+curl -s "http://localhost:8000/api/v1/forecasting/jobs/metrics" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Example fields:
+
+- `total_jobs`
+- `by_status` (`queued`, `running`, `completed`, `failed`, `cancelled`)
+- `avg_processing_time_ms`
+- `failed_last_24h`
+- `oldest_queued_age_seconds`
+
+Cleanup old jobs (ops roles only):
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/jobs/cleanup?retention_days=30" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If `retention_days` is omitted, backend uses `FORECAST_JOB_RETENTION_DAYS`.
+
 Possible `status` values: `queued`, `running`, `completed`, `failed`, `not_found`.
 
 Results:
