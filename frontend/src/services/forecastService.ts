@@ -1,5 +1,12 @@
 import api from './api'
-import type { Forecast, GenerateForecastRequest, ForecastAccuracy, PaginatedResponse } from '@/types'
+import type {
+  Forecast,
+  GenerateForecastRequest,
+  ForecastAccuracy,
+  PaginatedResponse,
+  GenerateForecastResponse,
+  ForecastDiagnostics,
+} from '@/types'
 
 /**
  * Forecasting API normalization
@@ -17,24 +24,15 @@ import type { Forecast, GenerateForecastRequest, ForecastAccuracy, PaginatedResp
  * So we normalize responses here to keep the UI stable.
  */
 
-type GenerateForecastResponse = {
-  product_id: number
-  model_type?: string | null
-  horizon: number
-  forecasts: Array<{
-    period: string
-    predicted_qty: number
-    lower_bound?: number | null
-    upper_bound?: number | null
-    confidence?: number | null
-    mape?: number | null
-  }>
-}
-
 type AccuracyResponseItem = {
   model_type: string
   avg_mape: number
   sample_count: number
+}
+
+export type GenerateForecastResult = {
+  forecasts: Forecast[]
+  diagnostics?: ForecastDiagnostics
 }
 
 function normalizeForecastsArray(items: Forecast[]): PaginatedResponse<Forecast> {
@@ -48,23 +46,23 @@ function normalizeForecastsArray(items: Forecast[]): PaginatedResponse<Forecast>
 }
 
 function normalizeAccuracy(items: AccuracyResponseItem[]): ForecastAccuracy[] {
-  // Forecasting page expects mape as a % number and bias fields etc.
-  // Backend currently only provides avg_mape + sample_count, so fill the rest with 0.
   return items.map((i) => ({
     product_id: 0,
     model_type: i.model_type,
     mape: i.avg_mape,
+    wape: 0,
     bias: 0,
     rmse: 0,
     mae: 0,
     hit_rate: 0,
     period_count: i.sample_count,
+    sample_count: i.sample_count,
+    avg_mape: i.avg_mape,
   }))
 }
 
 export const forecastService = {
-  async generateForecast(data: GenerateForecastRequest): Promise<Forecast[]> {
-    // backend expects query params (product_id, horizon, model_type), not JSON body
+  async generateForecast(data: GenerateForecastRequest): Promise<GenerateForecastResult> {
     const res = await api.post<GenerateForecastResponse>('/forecasting/generate', null, {
       params: {
         product_id: data.product_id,
@@ -73,12 +71,11 @@ export const forecastService = {
       },
     })
 
-    // Transform backend response into Forecast[] used in UI
-    const modelType = (res.data.model_type ?? data.model_type ?? 'ml_ensemble') as Forecast['model_type']
-    return (res.data.forecasts ?? []).map((f, idx) => ({
+    const modelType = (res.data.model_type ?? data.model_type ?? 'moving_average') as Forecast['model_type']
+    const forecasts = (res.data.forecasts ?? []).map((f, idx) => ({
       id: -1 * (idx + 1),
       product_id: res.data.product_id,
-      model_type: modelType,
+      model_type: (f.model_type ?? modelType) as Forecast['model_type'],
       period: f.period,
       predicted_qty: f.predicted_qty,
       lower_bound: f.lower_bound ?? undefined,
@@ -90,7 +87,13 @@ export const forecastService = {
       training_date: undefined,
       created_at: new Date().toISOString(),
       product: undefined,
+      selection_reason: res.data.diagnostics?.selection_reason,
+      advisor_confidence: res.data.diagnostics?.advisor_confidence,
+      advisor_enabled: res.data.diagnostics?.advisor_enabled,
+      fallback_used: res.data.diagnostics?.fallback_used,
     }))
+
+    return { forecasts, diagnostics: res.data.diagnostics }
   },
 
   async getResults(params?: { product_id?: number; model_type?: string; page?: number; page_size?: number }): Promise<PaginatedResponse<Forecast>> {
@@ -114,8 +117,14 @@ export const forecastService = {
   async getAccuracy(params?: { product_id?: number; model_type?: string }): Promise<ForecastAccuracy[]> {
     const res = await api.get<AccuracyResponseItem[] | ForecastAccuracy[]>('/forecasting/accuracy', { params })
     const data = res.data as any
-    // If backend already matches frontend shape, pass through.
-    if (Array.isArray(data) && data.length > 0 && 'mape' in data[0]) return data
+    if (Array.isArray(data) && data.length > 0 && 'mape' in data[0]) {
+      return data.map((row: any) => ({
+        ...row,
+        wape: row.wape ?? 0,
+        sample_count: row.sample_count ?? row.period_count,
+        avg_mape: row.avg_mape ?? row.mape,
+      }))
+    }
     return normalizeAccuracy((data as AccuracyResponseItem[]) ?? [])
   },
 

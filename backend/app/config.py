@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     STRICT_TRANSPORT_SECURITY_SECONDS: int = 31536000
     READINESS_CHECK_DATABASE: bool = True
     FORECAST_JOB_RETENTION_DAYS: int = 30
+    OPENAI_API_KEY: str = ""
+    GENXAI_LLM_MODEL: str = "gpt-4o-mini"
+    GENXAI_LLM_TEMPERATURE: float = 0.2
+    GENXAI_MAX_EXECUTION_TIME_SECONDS: float = 20.0
 
     @property
     def cors_origins_list(self) -> List[str]:

@@ -7,17 +7,27 @@ import { KPICard } from '@/components/common/KPICard'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
-import type { Forecast, ForecastAccuracy, GenerateForecastRequest } from '@/types'
+import type { Forecast, ForecastAccuracy, ForecastDiagnostics, GenerateForecastRequest } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 const MODEL_TYPES = [
   { value: 'moving_average', label: 'Moving Average' },
   { value: 'exp_smoothing', label: 'Exponential Smoothing' },
-  { value: 'arima', label: 'ARIMA' },
   { value: 'prophet', label: 'Prophet' },
-  { value: 'ml_ensemble', label: 'ML Ensemble' },
 ]
 
 export function ForecastingPage() {
@@ -29,8 +39,9 @@ export function ForecastingPage() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
+  const [diagnostics, setDiagnostics] = useState<ForecastDiagnostics | null>(null)
   const [form, setForm] = useState<Partial<GenerateForecastRequest>>({
-    model_type: 'ml_ensemble',
+    model_type: 'prophet',
     horizon_months: 6,
   })
 
@@ -59,7 +70,8 @@ export function ForecastingPage() {
     }
     setGenerating(true)
     try {
-      await forecastService.generateForecast(form as GenerateForecastRequest)
+      const result = await forecastService.generateForecast(form as GenerateForecastRequest)
+      setDiagnostics(result.diagnostics ?? null)
       toast.success('Forecast generated successfully')
       setShowGenerate(false)
       load()
@@ -77,6 +89,25 @@ export function ForecastingPage() {
   const bestModel = accuracy.length > 0
     ? accuracy.reduce((best, a) => a.mape < best.mape ? a : best, accuracy[0])
     : null
+
+  const chartData = [...forecasts]
+    .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+    .map((f) => ({
+      period: formatPeriod(f.period),
+      predicted_qty: f.predicted_qty,
+      lower_bound: f.lower_bound ?? f.predicted_qty,
+      upper_bound: f.upper_bound ?? f.predicted_qty,
+      mape: f.mape ?? null,
+    }))
+
+  const accuracyChartData = [...accuracy]
+    .sort((a, b) => a.mape - b.mape)
+    .map((a) => ({
+      model: a.model_type.replace(/_/g, ' '),
+      mape: a.mape,
+      wape: a.wape,
+      hit_rate: a.hit_rate,
+    }))
 
   return (
     <div className="space-y-6">
@@ -104,6 +135,25 @@ export function ForecastingPage() {
         <KPICard title="Models Evaluated" value={accuracy.length}
           icon={<Brain className="h-4 w-4" />} color="indigo" />
       </div>
+
+      {diagnostics && (
+        <Card title="AI Advisor Decision" subtitle="GenXAI model recommendation diagnostics">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">Selected Model</p>
+              <p className="font-semibold text-gray-900">{diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Advisor Confidence</p>
+              <p className="font-semibold text-gray-900">{formatPercent((diagnostics.advisor_confidence ?? 0) * 100, 0)}</p>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-gray-500">Reason</p>
+              <p className="text-gray-800">{diagnostics.selection_reason ?? 'No recommendation details.'}</p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Forecast Results */}
@@ -190,6 +240,50 @@ export function ForecastingPage() {
         </Card>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card title="Forecast Curve" subtitle="Prediction with confidence interval">
+          {chartData.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">Generate forecast to visualize trend</div>
+          ) : (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="period" tickMargin={8} />
+                  <YAxis width={56} />
+                  <Tooltip formatter={(v: number) => formatNumber(v)} />
+                  <Legend />
+                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Upper Bound" />
+                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Lower Bound Mask" />
+                  <Line type="monotone" dataKey="predicted_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Predicted Qty" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Error & Model Quality" subtitle="Cross-model accuracy overview">
+          {accuracyChartData.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">No accuracy metrics available yet</div>
+          ) : (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={accuracyChartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="model" tickMargin={8} />
+                  <YAxis width={56} />
+                  <Tooltip formatter={(v: number) => formatPercent(v)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="mape" stroke="#ef4444" strokeWidth={2} name="MAPE" />
+                  <Line type="monotone" dataKey="wape" stroke="#f59e0b" strokeWidth={2} name="WAPE" />
+                  <Line type="monotone" dataKey="hit_rate" stroke="#10b981" strokeWidth={2} name="Hit Rate" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+      </div>
+
       {/* Generate Modal */}
       <Modal isOpen={showGenerate} onClose={() => setShowGenerate(false)} title="Generate Forecast"
         footer={
@@ -211,7 +305,7 @@ export function ForecastingPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Type</label>
-            <select value={form.model_type ?? 'ml_ensemble'}
+            <select value={form.model_type ?? 'prophet'}
               onChange={(e) => setForm((f) => ({ ...f, model_type: e.target.value as GenerateForecastRequest['model_type'] }))}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               {MODEL_TYPES.map((m) => (

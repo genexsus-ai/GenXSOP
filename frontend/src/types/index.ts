@@ -197,9 +197,7 @@ export interface UpdateInventoryRequest {
 export type ForecastModelType =
   | 'moving_average'
   | 'exp_smoothing'
-  | 'arima'
   | 'prophet'
-  | 'ml_ensemble'
 
 export interface Forecast {
   id: number
@@ -215,6 +213,10 @@ export interface Forecast {
   rmse?: number
   model_version?: string
   training_date?: string
+  selection_reason?: string
+  advisor_confidence?: number
+  advisor_enabled?: boolean
+  fallback_used?: boolean
   created_at: string
 }
 
@@ -228,11 +230,42 @@ export interface ForecastAccuracy {
   product_id: number
   model_type: string
   mape: number
+  wape: number
   bias: number
   rmse: number
   mae: number
   hit_rate: number
   period_count: number
+  sample_count?: number
+  avg_mape?: number
+}
+
+export interface ForecastDiagnostics {
+  selected_model?: string
+  selection_reason?: string
+  advisor_confidence?: number
+  advisor_enabled?: boolean
+  fallback_used?: boolean
+  warnings?: string[]
+  history_months?: number
+  candidate_metrics?: ForecastAccuracy[]
+  data_quality_flags?: string[]
+}
+
+export interface GenerateForecastResponse {
+  product_id: number
+  model_type?: string | null
+  horizon: number
+  diagnostics?: ForecastDiagnostics
+  forecasts: Array<{
+    period: string
+    predicted_qty: number
+    lower_bound?: number | null
+    upper_bound?: number | null
+    confidence?: number | null
+    mape?: number | null
+    model_type?: string | null
+  }>
 }
 
 // ── Scenario ──────────────────────────────────────────────────────────────────

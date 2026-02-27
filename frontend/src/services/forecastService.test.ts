@@ -47,6 +47,7 @@ describe('forecastService (normalization)', () => {
     expect(res).toHaveLength(1)
     expect(res[0].model_type).toBe('ml_ensemble')
     expect(res[0].mape).toBe(12.34)
+    expect(res[0].wape).toBe(0)
     expect(res[0].bias).toBe(0)
     expect(res[0].period_count).toBe(6)
   })
@@ -57,6 +58,13 @@ describe('forecastService (normalization)', () => {
         product_id: 1,
         model_type: 'prophet',
         horizon: 2,
+        diagnostics: {
+          selected_model: 'prophet',
+          selection_reason: 'Best backtest score',
+          advisor_confidence: 0.82,
+          advisor_enabled: true,
+          fallback_used: false,
+        },
         forecasts: [
           { period: '2026-02-01', predicted_qty: 100, lower_bound: 90, upper_bound: 110, confidence: 80 },
           { period: '2026-03-01', predicted_qty: 120, lower_bound: 105, upper_bound: 130, confidence: 80 },
@@ -70,8 +78,9 @@ describe('forecastService (normalization)', () => {
       null,
       expect.objectContaining({ params: expect.objectContaining({ product_id: 1, horizon: 2, model_type: 'prophet' }) }),
     )
-    expect(res).toHaveLength(2)
-    expect(res[0].model_type).toBe('prophet')
-    expect(res[0].predicted_qty).toBe(100)
+    expect(res.forecasts).toHaveLength(2)
+    expect(res.forecasts[0].model_type).toBe('prophet')
+    expect(res.forecasts[0].predicted_qty).toBe(100)
+    expect(res.diagnostics?.selected_model).toBe('prophet')
   })
 })

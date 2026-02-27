@@ -42,16 +42,18 @@ def generate_forecast(
     current_user: User = Depends(require_roles(PLANNER_ROLES)),
 ):
     """Generate forecast using Strategy + Factory pattern. Auto-selects best model if model_type is None."""
-    results = service.generate_forecast(
+    payload = service.generate_forecast_with_diagnostics(
         product_id=product_id,
         model_type=model_type,
         horizon=horizon,
         user_id=current_user.id,
     )
+    results = payload["forecasts"]
     return {
         "product_id": product_id,
         "model_type": results[0].model_type if results else model_type,
         "horizon": horizon,
+        "diagnostics": payload.get("diagnostics", {}),
         "forecasts": [
             {
                 "period": str(f.period),
@@ -59,6 +61,7 @@ def generate_forecast(
                 "lower_bound": float(f.lower_bound) if f.lower_bound else None,
                 "upper_bound": float(f.upper_bound) if f.upper_bound else None,
                 "confidence": float(f.confidence) if f.confidence else None,
+                "model_type": f.model_type,
             }
             for f in results
         ],

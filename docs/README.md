@@ -15,6 +15,7 @@ Welcome to the GenXSOP docs.
 - **Publish readiness (weekly + monthly):** [`integration/publish-readiness.md`](integration/publish-readiness.md)
 - **Conversation scenario map:** [`conversation-scenarios.md`](conversation-scenarios.md)
 - **Enterprise readiness plan:** [`enterprise-readiness-plan.md`](enterprise-readiness-plan.md)
+- **Forecasting GenXAI enhancements (advisor + visualizations):** [`forecasting-genxai-enhancements.md`](forecasting-genxai-enhancements.md)
 - **DB operations runbook (P2):** [`operations/db-operations-runbook.md`](operations/db-operations-runbook.md)
 - **Developer / API Guide:** [`api-guide.md`](api-guide.md)
 - **Architecture docs (C4 + more):** [`architecture/README.md`](architecture/README.md)

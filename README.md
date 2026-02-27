@@ -22,6 +22,7 @@ If you’re new to the codebase, start here:
 - **User Guide (UI walkthrough):** [`docs/user-guide.md`](docs/user-guide.md)
 - **Developer / API Guide:** [`docs/api-guide.md`](docs/api-guide.md)
 - **Docs index:** [`docs/README.md`](docs/README.md)
+- **Forecasting GenXAI enhancements:** [`docs/forecasting-genxai-enhancements.md`](docs/forecasting-genxai-enhancements.md)
 
 ## 🧰 API tooling
 
