@@ -9,6 +9,7 @@ Welcome to the GenXSOP docs.
 - **Role Playbooks:** [`role-playbooks.md`](role-playbooks.md)
 - **Integration scenarios (ERP/WMS):** [`integration/erp-wms-integration.md`](integration/erp-wms-integration.md)
 - **ERP implementation blueprint:** [`integration/erp-integration-blueprint.md`](integration/erp-integration-blueprint.md)
+- **Epicor Kinetic integration guide:** [`integration/kinetic-integration-guide.md`](integration/kinetic-integration-guide.md)
 - **Data migration scope:** [`integration/data-migration-scope.md`](integration/data-migration-scope.md)
 - **Data source matrix:** [`integration/data-source-matrix.md`](integration/data-source-matrix.md)
 - **Publish readiness (weekly + monthly):** [`integration/publish-readiness.md`](integration/publish-readiness.md)
