@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.demand_plan import DemandPlan
+from app.models.forecast_run_audit import ForecastRunAudit
 
 
 def _seed_actual_history(db: Session, product_id: int, months: int = 18) -> None:
@@ -103,6 +104,17 @@ class TestForecastingIntegration:
         assert "advisor_enabled" in row
         assert "fallback_used" in row
         assert "warnings" in row
+
+        audit = (
+            db.query(ForecastRunAudit)
+            .filter(ForecastRunAudit.product_id == product.id)
+            .order_by(ForecastRunAudit.created_at.desc())
+            .first()
+        )
+        assert audit is not None
+        assert audit.selected_model is not None
+        assert audit.history_months >= 3
+        assert audit.records_created > 0
 
     def test_drift_alerts_endpoint_contract(
         self,

@@ -4,6 +4,7 @@ from app.models.demand_plan import DemandPlan
 from app.models.supply_plan import SupplyPlan
 from app.models.inventory import Inventory
 from app.models.forecast import Forecast
+from app.models.forecast_run_audit import ForecastRunAudit
 from app.models.forecast_job import ForecastJob
 from app.models.scenario import Scenario
 from app.models.sop_cycle import SOPCycle
@@ -18,6 +19,7 @@ __all__ = [
     "SupplyPlan",
     "Inventory",
     "Forecast",
+    "ForecastRunAudit",
     "ForecastJob",
     "Scenario",
     "SOPCycle",

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.demand_repository import DemandPlanRepository
 from app.models.forecast import Forecast
+from app.models.forecast_run_audit import ForecastRunAudit
 from app.ml.factory import ForecastModelFactory
 from app.ml.anomaly_detection import AnomalyDetector
 from app.services.forecast_advisor_service import ForecastAdvisorService
@@ -22,6 +23,7 @@ from app.utils.events import get_event_bus, ForecastGeneratedEvent
 class ForecastService:
 
     def __init__(self, db: Session):
+        self._db = db
         self._repo = ForecastRepository(db)
         self._demand_repo = DemandPlanRepository(db)
         self._bus = get_event_bus()
@@ -121,6 +123,36 @@ class ForecastService:
             )
             created.append(self._repo.create(forecast))
 
+        diagnostics = {
+            "selected_model": context.strategy.model_id,
+            "selection_reason": advisor.reason,
+            "advisor_confidence": advisor.confidence,
+            "advisor_enabled": advisor.advisor_enabled,
+            "fallback_used": advisor.fallback_used,
+            "warnings": advisor.warnings,
+            "history_months": len(history),
+            "candidate_metrics": candidate_metrics,
+            "data_quality_flags": data_quality_flags,
+        }
+
+        self._db.add(ForecastRunAudit(
+            product_id=product_id,
+            user_id=user_id,
+            requested_model=model_type,
+            selected_model=context.strategy.model_id,
+            horizon=horizon,
+            advisor_enabled=advisor.advisor_enabled,
+            fallback_used=advisor.fallback_used,
+            advisor_confidence=advisor.confidence,
+            selection_reason=advisor.reason,
+            history_months=len(history),
+            records_created=len(created),
+            warnings_json=json.dumps(advisor.warnings),
+            candidate_metrics_json=json.dumps(candidate_metrics),
+            data_quality_flags_json=json.dumps(data_quality_flags),
+        ))
+        self._db.commit()
+
         self._bus.publish(ForecastGeneratedEvent(
             product_id=product_id,
             model_type=context.strategy.model_id,
@@ -130,17 +162,7 @@ class ForecastService:
         ))
         return {
             "forecasts": created,
-            "diagnostics": {
-                "selected_model": context.strategy.model_id,
-                "selection_reason": advisor.reason,
-                "advisor_confidence": advisor.confidence,
-                "advisor_enabled": advisor.advisor_enabled,
-                "fallback_used": advisor.fallback_used,
-                "warnings": advisor.warnings,
-                "history_months": len(history),
-                "candidate_metrics": candidate_metrics,
-                "data_quality_flags": data_quality_flags,
-            },
+            "diagnostics": diagnostics,
         }
 
     def get_accuracy_metrics(self, product_id: Optional[int] = None) -> List[dict]:
