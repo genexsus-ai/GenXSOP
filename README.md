@@ -117,6 +117,22 @@ cd backend
 python scripts/db_preflight.py
 ```
 
+Run migration governance gate (CI/local):
+
+```bash
+cd backend
+bash scripts/ci_migration_gate.sh
+```
+
+Backup + restore verification helper:
+
+```bash
+cd backend
+SOURCE_DATABASE_URL='postgresql://user:pass@host:5432/genxsop' \
+RESTORE_DATABASE_URL='postgresql://user:pass@host:5432/genxsop_restore_check' \
+bash scripts/backup_restore_runbook.sh
+```
+
 ### Seed Sample Data
 
 ```bash
