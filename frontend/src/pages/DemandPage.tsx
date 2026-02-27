@@ -1,16 +1,27 @@
 import { useEffect, useState } from 'react'
-import { Plus, Search, Filter, CheckCircle, XCircle, Send } from 'lucide-react'
+import { Plus, Search, Filter, CheckCircle, XCircle, Send, Download } from 'lucide-react'
 import { demandService, type DemandFilters } from '@/services/demandService'
+import { productService } from '@/services/productService'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { formatPeriod, formatNumber } from '@/utils/formatters'
-import type { DemandPlan, CreateDemandPlanRequest } from '@/types'
+import type { DemandPlan, CreateDemandPlanRequest, Product } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 
 const STATUSES = ['', 'draft', 'submitted', 'approved', 'rejected', 'locked']
 
@@ -26,6 +37,12 @@ export function DemandPage() {
   const [search, setSearch] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [historyProductId, setHistoryProductId] = useState<number | undefined>(undefined)
+  const [historyRangeMonths, setHistoryRangeMonths] = useState(24)
+  const [historyPlans, setHistoryPlans] = useState<DemandPlan[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyOnlyActuals, setHistoryOnlyActuals] = useState(false)
 
   const [form, setForm] = useState<Partial<CreateDemandPlanRequest>>({
     forecast_qty: 0,
@@ -46,7 +63,121 @@ export function DemandPage() {
     }
   }
 
+  const loadProducts = async () => {
+    try {
+      // Backend enforces page_size <= 100. Pull all pages so selector is complete.
+      const first = await productService.getProducts({ page: 1, page_size: 100 })
+      let all = [...first.items]
+
+      for (let page = 2; page <= first.total_pages; page += 1) {
+        const next = await productService.getProducts({ page, page_size: 100 })
+        all = all.concat(next.items)
+      }
+
+      // Keep active/new products first while still allowing historical discontinued products.
+      all.sort((a, b) => {
+        const rank = (status?: string) => (status === 'active' ? 0 : status === 'new' ? 1 : 2)
+        return rank(a.status) - rank(b.status)
+      })
+
+      setProducts(all)
+    } catch {
+      // handled
+    }
+  }
+
+  const loadHistory = async () => {
+    if (!historyProductId) {
+      setHistoryPlans([])
+      return
+    }
+
+    setHistoryLoading(true)
+    try {
+      const now = new Date()
+      const periodTo = new Date(now.getFullYear(), now.getMonth(), 1)
+      const periodFrom = new Date(now.getFullYear(), now.getMonth() - (historyRangeMonths - 1), 1)
+
+      const first = await demandService.getPlans({
+        page: 1,
+        page_size: 100,
+        product_id: historyProductId,
+        period_from: periodFrom.toISOString().slice(0, 10),
+        period_to: periodTo.toISOString().slice(0, 10),
+      })
+
+      let all = [...first.items]
+      for (let page = 2; page <= first.total_pages; page += 1) {
+        const next = await demandService.getPlans({
+          page,
+          page_size: 100,
+          product_id: historyProductId,
+          period_from: periodFrom.toISOString().slice(0, 10),
+          period_to: periodTo.toISOString().slice(0, 10),
+        })
+        all = all.concat(next.items)
+      }
+
+      const sorted = [...all].sort(
+        (a, b) => new Date(a.period).getTime() - new Date(b.period).getTime(),
+      )
+      setHistoryPlans(sorted)
+    } catch {
+      // handled
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   useEffect(() => { load() }, [filters])
+  useEffect(() => { loadProducts() }, [])
+  useEffect(() => { loadHistory() }, [historyProductId, historyRangeMonths])
+
+  const filteredHistoryPlans = historyOnlyActuals
+    ? historyPlans.filter((p) => p.actual_qty != null)
+    : historyPlans
+
+  const historyChartData = filteredHistoryPlans.map((p) => ({
+    period: formatPeriod(p.period),
+    forecast_qty: p.forecast_qty,
+    actual_qty: p.actual_qty ?? null,
+    consensus_qty: p.consensus_qty ?? null,
+  }))
+
+  const exportHistoryCsv = () => {
+    if (!filteredHistoryPlans.length) return
+
+    const headers = ['period', 'forecast_qty', 'actual_qty', 'consensus_qty', 'region', 'channel', 'status']
+    const escapeCsv = (value: string | number | null | undefined) => {
+      if (value == null) return ''
+      const str = String(value)
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str
+    }
+
+    const rows = filteredHistoryPlans.map((p) => [
+      p.period,
+      p.forecast_qty,
+      p.actual_qty ?? '',
+      p.consensus_qty ?? '',
+      p.region,
+      p.channel,
+      p.status,
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.map((cell) => escapeCsv(cell)).join(','))
+      .join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `demand_history_product_${historyProductId}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
 
   const handleAction = async (id: number, action: 'submit' | 'approve' | 'reject') => {
     setActionLoading(id)
@@ -94,6 +225,111 @@ export function DemandPage() {
       </div>
 
       {/* Filters */}
+      <Card>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px]">
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Historical View Product</label>
+              <select
+                value={historyProductId ?? ''}
+                onChange={(e) => setHistoryProductId(e.target.value ? Number(e.target.value) : undefined)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select product...</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    #{product.id} — {product.sku} — {product.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Range</label>
+              <select
+                value={historyRangeMonths}
+                onChange={(e) => setHistoryRangeMonths(Number(e.target.value))}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value={12}>Last 12 months</option>
+                <option value={24}>Last 24 months</option>
+                <option value={36}>Last 36 months</option>
+              </select>
+            </div>
+
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={historyOnlyActuals}
+                onChange={(e) => setHistoryOnlyActuals(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              Only periods with actuals
+            </label>
+
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<Download className="h-4 w-4" />}
+              onClick={exportHistoryCsv}
+              disabled={!filteredHistoryPlans.length}
+            >
+              Export CSV
+            </Button>
+          </div>
+
+          {!historyProductId ? (
+            <p className="text-sm text-gray-500">Select a product to view its historical demand trend.</p>
+          ) : historyLoading ? (
+            <SkeletonTable rows={6} cols={4} />
+          ) : filteredHistoryPlans.length === 0 ? (
+            <p className="text-sm text-gray-500">No historical data found for the selected product and range.</p>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500">Selected Product ID: <span className="font-medium text-gray-700">{historyProductId}</span></p>
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={historyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="period" minTickGap={16} />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="actual_qty" name="Actual Qty" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls={false} />
+                    <Line type="monotone" dataKey="forecast_qty" name="Forecast Qty" stroke="#2563eb" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="consensus_qty" name="Consensus Qty" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="overflow-x-auto border border-gray-100 rounded-lg">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      {['Period', 'Forecast Qty', 'Actual Qty', 'Consensus Qty'].map((h) => (
+                        <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredHistoryPlans.map((plan) => (
+                      <tr key={plan.id}>
+                        <td className="px-4 py-2.5 text-gray-700">{formatPeriod(plan.period)}</td>
+                        <td className="px-4 py-2.5 text-gray-900 tabular-nums">{formatNumber(plan.forecast_qty)}</td>
+                        <td className="px-4 py-2.5 text-gray-900 tabular-nums">{plan.actual_qty != null ? formatNumber(plan.actual_qty) : '—'}</td>
+                        <td className="px-4 py-2.5 text-gray-900 tabular-nums">{plan.consensus_qty != null ? formatNumber(plan.consensus_qty) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </Card>
+
       <Card padding={false}>
         <div className="flex items-center gap-3 p-4">
           <div className="relative flex-1 max-w-xs">
@@ -121,7 +357,7 @@ export function DemandPage() {
 
         {/* Table */}
         {loading ? (
-          <div className="p-4"><SkeletonTable rows={8} cols={7} /></div>
+          <div className="p-4"><SkeletonTable rows={8} cols={8} /></div>
         ) : plans.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <p className="text-sm">No demand plans found</p>
@@ -131,7 +367,7 @@ export function DemandPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Product', 'Period', 'Region', 'Forecast Qty', 'Consensus Qty', 'Status', 'Actions'].map((h) => (
+                  {['Product', 'Period', 'Region', 'Forecast Qty', 'Actual Qty', 'Consensus Qty', 'Status', 'Actions'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -142,11 +378,15 @@ export function DemandPage() {
                 {plans.map((plan) => (
                   <tr key={plan.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-medium text-gray-900">
-                      {plan.product?.name ?? `Product #${plan.product_id}`}
+                      <p>{plan.product?.name ?? `Product #${plan.product_id}`}</p>
+                      <p className="text-xs text-gray-400">ID: {plan.product_id}</p>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{formatPeriod(plan.period)}</td>
                     <td className="px-4 py-3 text-gray-600">{plan.region}</td>
                     <td className="px-4 py-3 text-gray-900 tabular-nums">{formatNumber(plan.forecast_qty)}</td>
+                    <td className="px-4 py-3 text-gray-900 tabular-nums">
+                      {plan.actual_qty != null ? formatNumber(plan.actual_qty) : '—'}
+                    </td>
                     <td className="px-4 py-3 text-gray-900 tabular-nums">
                       {plan.consensus_qty != null ? formatNumber(plan.consensus_qty) : '—'}
                     </td>

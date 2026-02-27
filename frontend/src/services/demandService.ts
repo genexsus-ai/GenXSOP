@@ -9,11 +9,18 @@ export interface DemandFilters {
   region?: string
   period_start?: string
   period_end?: string
+  period_from?: string
+  period_to?: string
 }
 
 export const demandService = {
   async getPlans(filters: DemandFilters = {}): Promise<PaginatedResponse<DemandPlan>> {
-    const res = await api.get<PaginatedResponse<DemandPlan>>('/demand/plans', { params: filters })
+    const params = {
+      ...filters,
+      period_from: filters.period_from ?? filters.period_start,
+      period_to: filters.period_to ?? filters.period_end,
+    }
+    const res = await api.get<PaginatedResponse<DemandPlan>>('/demand/plans', { params })
     return res.data
   },
 
