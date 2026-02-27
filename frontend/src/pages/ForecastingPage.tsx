@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Brain, Play, Sparkles, TrendingUp, Target } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
+import { demandService } from '@/services/demandService'
+import { productService } from '@/services/productService'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { KPICard } from '@/components/common/KPICard'
@@ -15,6 +17,8 @@ import type {
   ForecastModelType,
   ForecastSandboxResponse,
   GenerateForecastRequest,
+  Product,
+  DemandPlan,
 } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
@@ -56,6 +60,11 @@ export function ForecastingPage() {
   const [sandbox, setSandbox] = useState<ForecastSandboxResponse | null>(null)
   const [runningSandbox, setRunningSandbox] = useState(false)
   const [promotingModel, setPromotingModel] = useState<ForecastModelType | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined)
+  const [historyRangeMonths, setHistoryRangeMonths] = useState(24)
+  const [historyPlans, setHistoryPlans] = useState<DemandPlan[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [form, setForm] = useState<Partial<GenerateForecastRequest>>({
     model_type: 'prophet',
     horizon_months: 6,
@@ -79,7 +88,55 @@ export function ForecastingPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  const loadProducts = async () => {
+    try {
+      // Backend max page_size is 100
+      const res = await productService.getProducts({ page_size: 100 })
+      setProducts(res.items)
+    } catch {
+      setProducts([])
+    }
+  }
+
+  useEffect(() => {
+    load()
+    loadProducts()
+  }, [])
+
+  const chartProductId = selectedProductId ?? form.product_id ?? forecasts[0]?.product_id
+
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, product_id: selectedProductId }))
+  }, [selectedProductId])
+
+  useEffect(() => {
+    const loadHistoryPlans = async () => {
+      if (!chartProductId) {
+        setHistoryPlans([])
+        return
+      }
+
+      setHistoryLoading(true)
+      try {
+        const periodTo = new Date()
+        const periodFrom = new Date(periodTo.getFullYear(), periodTo.getMonth() - (historyRangeMonths - 1), 1)
+        const history = await demandService.getPlans({
+          page_size: 100,
+          product_id: chartProductId,
+          period_from: periodFrom.toISOString().slice(0, 10),
+          period_to: periodTo.toISOString().slice(0, 10),
+        })
+
+        setHistoryPlans((history.items ?? []).sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime()))
+      } catch {
+        setHistoryPlans([])
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+
+    loadHistoryPlans()
+  }, [chartProductId, historyRangeMonths])
 
   const handleGenerate = async () => {
     if (!form.product_id) {
@@ -179,15 +236,41 @@ export function ForecastingPage() {
     ? accuracy.reduce((best, a) => a.mape < best.mape ? a : best, accuracy[0])
     : null
 
-  const chartData = [...forecasts]
+  const historyChartData = historyPlans.map((p) => ({
+    period: formatPeriod(p.period),
+    actual_qty: p.actual_qty != null ? Number(p.actual_qty) : null,
+    forecast_qty: Number(p.forecast_qty ?? 0),
+    consensus_qty: p.consensus_qty != null ? Number(p.consensus_qty) : null,
+  }))
+
+  const historicalSeries = historyPlans.map((p) => ({
+    period: p.period,
+    historical_qty: Number(p.actual_qty ?? p.consensus_qty ?? p.forecast_qty ?? 0),
+  }))
+
+  const forecastPoints = [...forecasts]
+    .filter((f) => !chartProductId || f.product_id === chartProductId)
     .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
-    .map((f) => ({
-      period: formatPeriod(f.period),
-      predicted_qty: f.predicted_qty,
-      lower_bound: f.lower_bound ?? f.predicted_qty,
-      upper_bound: f.upper_bound ?? f.predicted_qty,
-      mape: f.mape ?? null,
-    }))
+
+  const chartData = Array.from(
+    new Set([
+      ...historicalSeries.map((h) => h.period),
+      ...forecastPoints.map((f) => f.period),
+    ]),
+  )
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
+    .map((period) => {
+      const historical = historicalSeries.find((h) => h.period === period)
+      const forecast = forecastPoints.find((f) => f.period === period)
+
+      return {
+        period: formatPeriod(period),
+        historical_qty: historical?.historical_qty ?? null,
+        prediction_qty: forecast?.predicted_qty ?? null,
+        lower_bound: forecast?.lower_bound ?? null,
+        upper_bound: forecast?.upper_bound ?? null,
+      }
+    })
 
   const accuracyChartData = [...accuracy]
     .sort((a, b) => a.mape - b.mape)
@@ -213,12 +296,65 @@ export function ForecastingPage() {
             <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox}>
               Run Sandbox
             </Button>
-            <Button icon={<Play />} onClick={() => setShowGenerate(true)}>
+            <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId}>
               Generate Forecast
             </Button>
           </div>
         )}
       </div>
+
+      <Card title="Step 1 · Select Product & Review Historical Demand" subtitle="View past demand values before generating forecast">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Product</label>
+            <select
+              value={selectedProductId ?? ''}
+              onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : undefined)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select a product</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">History Range</label>
+            <select
+              value={historyRangeMonths}
+              onChange={(e) => setHistoryRangeMonths(Number(e.target.value))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={6}>Last 6 months</option>
+              <option value={12}>Last 12 months</option>
+              <option value={24}>Last 24 months</option>
+            </select>
+          </div>
+        </div>
+
+        {!selectedProductId ? (
+          <p className="text-sm text-gray-500">Select a product to preview historical demand values.</p>
+        ) : historyLoading ? (
+          <SkeletonTable rows={5} cols={4} />
+        ) : historyChartData.length === 0 ? (
+          <p className="text-sm text-gray-500">No historical demand data found for this product and range.</p>
+        ) : (
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={historyChartData} margin={{ top: 16, right: 24, left: 8, bottom: 12 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="period" tickMargin={8} />
+                <YAxis width={56} />
+                <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
+                <Legend />
+                <Line type="monotone" dataKey="actual_qty" name="Actual Qty" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls={false} />
+                <Line type="monotone" dataKey="forecast_qty" name="Forecast Qty" stroke="#2563eb" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="consensus_qty" name="Consensus Qty" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
 
       {/* KPI row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -404,9 +540,9 @@ export function ForecastingPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Forecast Curve" subtitle="Prediction with confidence interval">
+        <Card title="Step 2 · Forecast Curve" subtitle="Historical + prediction with confidence interval">
           {chartData.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">Generate forecast to visualize trend</div>
+            <div className="text-center py-10 text-gray-400 text-sm">Select a product and generate forecast to visualize trend</div>
           ) : (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
@@ -414,11 +550,12 @@ export function ForecastingPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="period" tickMargin={8} />
                   <YAxis width={56} />
-                  <Tooltip formatter={(v: number) => formatNumber(v)} />
+                  <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
                   <Legend />
-                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Upper Bound" />
-                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Lower Bound Mask" />
-                  <Line type="monotone" dataKey="predicted_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Predicted Qty" />
+                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Confidence (Upper)" connectNulls={false} />
+                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Confidence (Lower Mask)" connectNulls={false} />
+                  <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={false} name="Historical" connectNulls={false} />
+                  <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Prediction" connectNulls={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
