@@ -1,0 +1,403 @@
+{
+  "info": {
+    "_postman_id": "b7d0f77b-2a74-470c-9a1b-71c582d45b3f",
+    "name": "GenXSOP API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (sets tokens)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login succeeded', function () { pm.response.to.have.status(200); });",
+                  "const data = pm.response.json();",
+                  "if (data && data.access_token) { pm.environment.set('accessToken', data.access_token); }",
+                  "if (data && data.refresh_token) { pm.environment.set('refreshToken', data.refresh_token); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/dashboard/summary", "host": ["{{baseUrl}}"], "path": ["dashboard", "summary"] }
+          }
+        },
+        {
+          "name": "Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/dashboard/alerts", "host": ["{{baseUrl}}"], "path": ["dashboard", "alerts"] }
+          }
+        },
+        {
+          "name": "SOP Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/dashboard/sop-status", "host": ["{{baseUrl}}"], "path": ["dashboard", "sop-status"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/products?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/products/categories", "host": ["{{baseUrl}}"], "path": ["products", "categories"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Demand",
+      "item": [
+        {
+          "name": "List demand plans",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/demand/plans?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["demand", "plans"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Submit demand plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/demand/plans/{{demandPlanId}}/submit", "host": ["{{baseUrl}}"], "path": ["demand", "plans", "{{demandPlanId}}", "submit"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Supply",
+      "item": [
+        {
+          "name": "List supply plans",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/supply/plans?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["supply", "plans"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Gap analysis",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/supply/gap-analysis?period=2026-03-01",
+              "host": ["{{baseUrl}}"],
+              "path": ["supply", "gap-analysis"],
+              "query": [
+                { "key": "period", "value": "2026-03-01" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "List inventory",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/inventory?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["inventory"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Health summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/health", "host": ["{{baseUrl}}"], "path": ["inventory", "health"] }
+          }
+        },
+        {
+          "name": "Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/inventory/alerts", "host": ["{{baseUrl}}"], "path": ["inventory", "alerts"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Forecasting",
+      "item": [
+        {
+          "name": "List models",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/forecasting/models", "host": ["{{baseUrl}}"], "path": ["forecasting", "models"] }
+          }
+        },
+        {
+          "name": "Generate forecast",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/forecasting/generate?product_id={{productId}}&horizon=6",
+              "host": ["{{baseUrl}}"],
+              "path": ["forecasting", "generate"],
+              "query": [
+                { "key": "product_id", "value": "{{productId}}" },
+                { "key": "horizon", "value": "6" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List forecast results",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/forecasting/results?product_id={{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["forecasting", "results"],
+              "query": [
+                { "key": "product_id", "value": "{{productId}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scenarios",
+      "item": [
+        {
+          "name": "List scenarios",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/scenarios?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["scenarios"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Run scenario",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/scenarios/{{scenarioId}}/run", "host": ["{{baseUrl}}"], "path": ["scenarios", "{{scenarioId}}", "run"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SOP Cycles",
+      "item": [
+        {
+          "name": "List cycles",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/sop-cycles?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["sop-cycles"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Advance cycle",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/sop-cycles/{{cycleId}}/advance", "host": ["{{baseUrl}}"], "path": ["sop-cycles", "{{cycleId}}", "advance"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "KPI",
+      "item": [
+        {
+          "name": "KPI dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/kpi/dashboard", "host": ["{{baseUrl}}"], "path": ["kpi", "dashboard"] }
+          }
+        },
+        {
+          "name": "List KPI metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/kpi/metrics?category=demand", "host": ["{{baseUrl}}"], "path": ["kpi", "metrics"], "query": [{"key":"category","value":"demand"}] }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+# ------------------------------
+# General / OS
+# ------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# ------------------------------
+# Editors / IDEs
+# ------------------------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+
+# ------------------------------
+# Logs
+# ------------------------------
+*.log
+backend/server.log
+
+# ------------------------------
+# Environment files / secrets
+# ------------------------------
+.env
+.env.*
+!.env.example
+backend/.env
+
+# ------------------------------
+# Python
+# ------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# ------------------------------
+# Database / runtime artifacts
+# ------------------------------
+*.sqlite
+*.sqlite3
+*.db
+backend/genxsop.db
+
+# Alembic
+backend/alembic/versions/*.pyc
+
+# ------------------------------
+# Node / Frontend
+# ------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite
+frontend/dist/
+frontend/.vite/
+
+# Frontend env files
+frontend/.env
+frontend/.env.*
+
+# ------------------------------
+# Misc
+# ------------------------------
+*.pid
+*.seed
+*.tmp
