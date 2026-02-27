@@ -211,7 +211,7 @@ export function DemandPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pt-2">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Demand Planning</h1>
@@ -289,10 +289,13 @@ export function DemandPage() {
               <p className="text-xs text-gray-500">Selected Product ID: <span className="font-medium text-gray-700">{historyProductId}</span></p>
               <div className="h-72 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={historyChartData}>
+                  <LineChart
+                    data={historyChartData}
+                    margin={{ top: 16, right: 24, left: 8, bottom: 12 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="period" minTickGap={16} />
-                    <YAxis />
+                    <XAxis dataKey="period" minTickGap={16} tickMargin={8} />
+                    <YAxis width={56} />
                     <Tooltip />
                     <Legend />
                     <Line type="monotone" dataKey="actual_qty" name="Actual Qty" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls={false} />
