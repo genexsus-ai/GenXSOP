@@ -49,6 +49,15 @@ class ForecastService:
             raise to_http_exception(EntityNotFoundException("Forecast", forecast_id))
         return f
 
+    def delete_forecast(self, forecast_id: int) -> None:
+        forecast = self._repo.get_by_id(forecast_id)
+        if not forecast:
+            raise to_http_exception(EntityNotFoundException("Forecast", forecast_id))
+        self._repo.delete(forecast)
+
+    def delete_forecasts_by_product(self, product_id: int) -> int:
+        return self._repo.delete_by_product(product_id)
+
     def generate_forecast(
         self,
         product_id: int,

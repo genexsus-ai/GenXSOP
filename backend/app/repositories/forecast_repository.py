@@ -41,6 +41,13 @@ class ForecastRepository(BaseRepository[Forecast]):
             Forecast.period == period,
         ).delete()
 
+    def delete_by_product(self, product_id: int) -> int:
+        deleted = self.db.query(Forecast).filter(
+            Forecast.product_id == product_id,
+        ).delete(synchronize_session=False)
+        self.db.commit()
+        return int(deleted or 0)
+
     def get_with_mape(
         self,
         product_id: Optional[int] = None,

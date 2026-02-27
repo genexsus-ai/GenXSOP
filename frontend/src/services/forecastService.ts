@@ -125,6 +125,15 @@ export const forecastService = {
     return res.data
   },
 
+  async deleteResult(id: number): Promise<void> {
+    await api.delete(`/forecasting/results/${id}`)
+  },
+
+  async deleteResultsByProduct(productId: number): Promise<{ product_id: number; deleted: number }> {
+    const res = await api.delete<{ product_id: number; deleted: number }>(`/forecasting/results/by-product/${productId}`)
+    return res.data
+  },
+
   async getModels() {
     const res = await api.get('/forecasting/models')
     return res.data

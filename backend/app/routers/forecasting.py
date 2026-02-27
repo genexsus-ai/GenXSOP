@@ -2,7 +2,7 @@
 Forecasting Router — Thin Controller (SRP / DIP)
 Uses ForecastService which internally uses Strategy + Factory patterns.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import date
@@ -266,6 +266,29 @@ def list_forecast_results(
         })
         for f in results
     ]
+
+
+@router.delete("/results/{forecast_id}", status_code=204)
+def delete_forecast_result(
+    forecast_id: int,
+    service: ForecastService = Depends(get_forecast_service),
+    _: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    service.delete_forecast(forecast_id)
+    return Response(status_code=204)
+
+
+@router.delete("/results/by-product/{product_id}")
+def delete_forecast_results_by_product(
+    product_id: int,
+    service: ForecastService = Depends(get_forecast_service),
+    _: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    deleted = service.delete_forecasts_by_product(product_id)
+    return {
+        "product_id": product_id,
+        "deleted": deleted,
+    }
 
 
 @router.get("/accuracy")

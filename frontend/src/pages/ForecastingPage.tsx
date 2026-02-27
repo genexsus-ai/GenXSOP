@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Play, Sparkles, TrendingUp, Target } from 'lucide-react'
+import { AlertTriangle, Brain, Play, Sparkles, TrendingUp, Target, Trash2 } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { demandService } from '@/services/demandService'
 import { productService } from '@/services/productService'
@@ -228,6 +228,38 @@ export function ForecastingPage() {
     }
   }
 
+  const groupedForecasts = Array.from(
+    forecasts.reduce((acc, f) => {
+      const key = f.product_id
+      if (!acc.has(key)) acc.set(key, [])
+      acc.get(key)!.push(f)
+      return acc
+    }, new Map<number, Forecast[]>()),
+  ).map(([product_id, items]) => {
+    const sorted = [...items].sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+    const sample = sorted[0]
+    return {
+      product_id,
+      product_name: sample?.product?.name ?? `#${product_id}`,
+      count: sorted.length,
+      period_from: sorted[0]?.period,
+      period_to: sorted[sorted.length - 1]?.period,
+      latest_model: sorted[sorted.length - 1]?.model_type,
+    }
+  })
+    .sort((a, b) => a.product_name.localeCompare(b.product_name))
+
+  const handleDeleteForecastGroup = async (productId: number, productName: string) => {
+    if (!confirm(`Delete all forecast results for ${productName}? This action cannot be undone.`)) return
+    try {
+      const res = await forecastService.deleteResultsByProduct(productId)
+      toast.success(`Deleted ${res.deleted} forecast result(s) for ${productName}`)
+      await load()
+    } catch {
+      // handled
+    }
+  }
+
   const avgMape = accuracy.length > 0
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
@@ -239,8 +271,6 @@ export function ForecastingPage() {
   const historyChartData = historyPlans.map((p) => ({
     period: formatPeriod(p.period),
     actual_qty: p.actual_qty != null ? Number(p.actual_qty) : null,
-    forecast_qty: Number(p.forecast_qty ?? 0),
-    consensus_qty: p.consensus_qty != null ? Number(p.consensus_qty) : null,
   }))
 
   const historicalSeries = historyPlans.map((p) => ({
@@ -303,7 +333,7 @@ export function ForecastingPage() {
         )}
       </div>
 
-      <Card title="Step 1 · Select Product & Review Historical Demand" subtitle="View past demand values before generating forecast">
+      <Card title="Step 1 · Select Product & Review Historical Demand" subtitle="View actual demand before generating forecast">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Product</label>
@@ -348,8 +378,6 @@ export function ForecastingPage() {
                 <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
                 <Legend />
                 <Line type="monotone" dataKey="actual_qty" name="Actual Qty" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls={false} />
-                <Line type="monotone" dataKey="forecast_qty" name="Forecast Qty" stroke="#2563eb" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="consensus_qty" name="Consensus Qty" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -464,35 +492,35 @@ export function ForecastingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    {['Product', 'Period', 'Model', 'Predicted Qty', 'MAPE'].map((h) => (
+                    {['Product', 'Periods', 'Latest Model', 'Count', 'Actions'].map((h) => (
                       <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {forecasts.slice(0, 10).map((f) => (
-                    <tr key={f.id} className="hover:bg-gray-50">
-                      <td className="py-2.5 font-medium text-gray-900 pr-3">
-                        {f.product?.name ?? `#${f.product_id}`}
+                  {groupedForecasts.slice(0, 10).map((g) => (
+                    <tr key={g.product_id} className="hover:bg-gray-50">
+                      <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
+                      <td className="py-2.5 text-gray-600 pr-3">
+                        {g.period_from && g.period_to
+                          ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
+                          : '—'}
                       </td>
-                      <td className="py-2.5 text-gray-600 pr-3">{formatPeriod(f.period)}</td>
                       <td className="py-2.5 pr-3">
                         <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                          {f.model_type.replace(/_/g, ' ')}
+                          {g.latest_model?.replace(/_/g, ' ') ?? '—'}
                         </span>
-                        {f.fallback_used ? (
-                          <span className="ml-2 text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full" title={f.selection_reason ?? 'Advisor fallback used'}>
-                            fallback
-                          </span>
-                        ) : null}
                       </td>
-                      <td className="py-2.5 tabular-nums pr-3">{formatNumber(f.predicted_qty)}</td>
-                      <td className="py-2.5 tabular-nums">
-                        {f.mape != null ? (
-                          <span className={f.mape < 10 ? 'text-emerald-600' : f.mape < 20 ? 'text-amber-600' : 'text-red-500'}>
-                            {formatPercent(f.mape)}
-                          </span>
-                        ) : '—'}
+                      <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
+                      <td className="py-2.5">
+                        <button
+                          onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}
+                          className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Delete all forecast results for this product"
+                          disabled={!canGenerate}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))}
