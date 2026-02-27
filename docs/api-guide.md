@@ -208,6 +208,59 @@ curl -s -X POST "http://localhost:8000/api/v1/forecasting/generate?product_id=1&
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Async generate (enterprise transition pattern):
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/generate-job?product_id=1&horizon=6&model_type=prophet" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Example response shape:
+
+```json
+{
+  "job_id": "8d2f...",
+  "status": "queued",
+  "product_id": 1,
+  "horizon": 6,
+  "model_type": "prophet",
+  "requested_by": 1,
+  "created_at": "2026-02-27T00:00:00.000000"
+}
+```
+
+Get async job status/result:
+
+```bash
+JOB_ID="<job_id_from_generate_job>"
+
+curl -s "http://localhost:8000/api/v1/forecasting/jobs/$JOB_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+List recent jobs:
+
+```bash
+curl -s "http://localhost:8000/api/v1/forecasting/jobs?limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Cancel a job:
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/jobs/$JOB_ID/cancel" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Retry a failed/cancelled job (returns new queued job):
+
+```bash
+curl -s -X POST "http://localhost:8000/api/v1/forecasting/jobs/$JOB_ID/retry" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Possible `status` values: `queued`, `running`, `completed`, `failed`, `not_found`.
+
 Results:
 
 ```bash

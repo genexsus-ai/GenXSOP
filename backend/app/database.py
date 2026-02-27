@@ -23,4 +23,6 @@ def get_db():
 
 
 def create_tables():
+    # Lazy import to avoid circular import with model modules that import Base.
+    import app.models  # noqa: F401
     Base.metadata.create_all(bind=engine)

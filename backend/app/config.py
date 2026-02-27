@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     APP_NAME: str = "GenXSOP"
     APP_VERSION: str = "1.0.0"
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"
+    ENABLE_REQUEST_ID: bool = True
+    ENABLE_REQUEST_LOGGING: bool = True
+    ENABLE_SECURITY_HEADERS: bool = True
+    STRICT_TRANSPORT_SECURITY_SECONDS: int = 31536000
+    READINESS_CHECK_DATABASE: bool = True
 
     @property
     def cors_origins_list(self) -> List[str]:
