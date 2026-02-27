@@ -19,7 +19,7 @@ from app.database import create_tables, SessionLocal, engine
 from app.core.exceptions import GenXSOPException, to_http_exception
 from app.utils.events import configure_event_bus
 from app.utils.logging import configure_logging
-from app.routers import auth, products, demand, supply, inventory, scenarios, sop_cycles, kpi, forecasting, dashboard
+from app.routers import auth, products, demand, supply, inventory, scenarios, sop_cycles, kpi, forecasting, dashboard, integrations
 
 configure_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -119,6 +119,7 @@ app.include_router(forecasting.router, prefix=API_PREFIX)
 app.include_router(scenarios.router, prefix=API_PREFIX)
 app.include_router(sop_cycles.router, prefix=API_PREFIX)
 app.include_router(kpi.router, prefix=API_PREFIX)
+app.include_router(integrations.router, prefix=API_PREFIX)
 
 
 # ── Lifecycle Events ──────────────────────────────────────────────────────────

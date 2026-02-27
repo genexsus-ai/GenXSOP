@@ -8,6 +8,7 @@ Welcome to the GenXSOP docs.
 - **Business Overview:** [`business-overview.md`](business-overview.md)
 - **Role Playbooks:** [`role-playbooks.md`](role-playbooks.md)
 - **Integration scenarios (ERP/WMS):** [`integration/erp-wms-integration.md`](integration/erp-wms-integration.md)
+- **ERP implementation blueprint:** [`integration/erp-integration-blueprint.md`](integration/erp-integration-blueprint.md)
 - **Publish readiness (weekly + monthly):** [`integration/publish-readiness.md`](integration/publish-readiness.md)
 - **Conversation scenario map:** [`conversation-scenarios.md`](conversation-scenarios.md)
 - **Enterprise readiness plan:** [`enterprise-readiness-plan.md`](enterprise-readiness-plan.md)

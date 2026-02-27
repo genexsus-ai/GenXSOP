@@ -6,3 +6,13 @@ from app.schemas.inventory import InventoryUpdate, InventoryResponse, InventoryL
 from app.schemas.scenario import ScenarioCreate, ScenarioUpdate, ScenarioResponse, ScenarioListResponse
 from app.schemas.sop_cycle import SOPCycleCreate, SOPCycleUpdate, SOPCycleResponse, SOPCycleListResponse
 from app.schemas.kpi import KPIMetricCreate, KPIMetricResponse, KPIMetricListResponse, KPIDashboardData
+from app.schemas.integration import (
+    IntegrationRequestMeta,
+    ERPProductItem,
+    ERPInventoryItem,
+    ERPDemandActualItem,
+    ERPProductSyncRequest,
+    ERPInventorySyncRequest,
+    ERPDemandActualSyncRequest,
+    IntegrationOperationResponse,
+)
