@@ -131,7 +131,11 @@ def startup_event():
     2. Initialize EventBus with AuditLogHandler (Observer Pattern)
     """
     logger.info("Starting %s v%s", settings.APP_NAME, settings.APP_VERSION)
-    create_tables()
+    if settings.AUTO_CREATE_TABLES:
+        create_tables()
+        logger.info("Database tables ensured via SQLAlchemy metadata (AUTO_CREATE_TABLES=true)")
+    else:
+        logger.info("AUTO_CREATE_TABLES=false; expecting schema managed by Alembic migrations")
     # Configure Observer Pattern: EventBus with AuditLog + Logging handlers
     configure_event_bus(db_session_factory=SessionLocal)
     logger.info("EventBus initialized with AuditLogHandler and LoggingHandler")

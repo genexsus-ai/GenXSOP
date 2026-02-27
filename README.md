@@ -93,12 +93,29 @@ cp .env.example .env
 
 # Run the server
 python run.py
+
+# Optional: enforce migration-only startup behavior
+# export AUTO_CREATE_TABLES=false
 ```
 
 The API will be available at:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 - **Health**: http://localhost:8000/health
+
+### Production DB safety notes
+
+- Set `ENVIRONMENT=production` in production deployments.
+- Use PostgreSQL (SQLite is blocked in production mode).
+- Set a non-default `SECRET_KEY`.
+- Set `AUTO_CREATE_TABLES=false` and apply schema changes via Alembic migrations.
+
+Run preflight check before deployment:
+
+```bash
+cd backend
+python scripts/db_preflight.py
+```
 
 ### Seed Sample Data
 

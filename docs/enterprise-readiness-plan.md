@@ -72,6 +72,8 @@ This plan is not only theoretical. The initial foundation hardening implemented 
 3. Dedicated readiness endpoint (`/ready`) with request ID support
 4. Config flags to control these behaviors by environment
 5. Async forecasting job endpoints (`/forecasting/generate-job`, `/forecasting/jobs/{job_id}`)
+6. Production safety guardrails for database configuration (`ENVIRONMENT`, `AUTO_CREATE_TABLES`, production checks)
+7. Stronger enterprise data constraints and indexes for core planning tables (via Alembic)
 
 ### Async forecasting note
 
@@ -88,6 +90,13 @@ Current state in repository:
 - Retention cleanup endpoint available: `/forecasting/jobs/cleanup` (ops roles), controlled by `FORECAST_JOB_RETENTION_DAYS`.
 - Lightweight maintenance runner added: `backend/app/services/forecast_job_maintenance.py` (`run_forecast_job_cleanup`) for cron/scheduler integration.
 - Initial migration file added: `backend/alembic/versions/20260227_0001_add_forecast_jobs_table.py`.
+- Enterprise hardening migration added: `backend/alembic/versions/20260227_0002_enterprise_db_hardening.py`.
+  - Adds composite business-key uniqueness constraints
+  - Adds status-domain and non-negative/range check constraints
+  - Adds operational composite indexes for common filter patterns
+- Data quality normalization migration added: `backend/alembic/versions/20260227_0003_data_quality_backfill.py`.
+  - Backfills legacy/invalid values (status domains, empty dimensions, negative values)
+  - Reduces risk of enterprise constraint conflicts during upgrades
 
 ### Operational reference for implemented controls
 

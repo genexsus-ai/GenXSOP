@@ -1,9 +1,40 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, Date, ForeignKey, func
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Numeric,
+    DateTime,
+    Date,
+    ForeignKey,
+    CheckConstraint,
+    UniqueConstraint,
+    Index,
+    func,
+)
 from app.database import Base
 
 
 class Inventory(Base):
     __tablename__ = "inventory"
+    __table_args__ = (
+        UniqueConstraint("product_id", "location", name="uq_inventory_product_location"),
+        CheckConstraint(
+            "status IN ('normal', 'low', 'critical', 'excess')",
+            name="ck_inventory_status",
+        ),
+        CheckConstraint("on_hand_qty >= 0", name="ck_inventory_on_hand_non_negative"),
+        CheckConstraint("allocated_qty >= 0", name="ck_inventory_allocated_non_negative"),
+        CheckConstraint("in_transit_qty >= 0", name="ck_inventory_in_transit_non_negative"),
+        CheckConstraint("safety_stock >= 0", name="ck_inventory_safety_stock_non_negative"),
+        CheckConstraint("reorder_point >= 0", name="ck_inventory_reorder_point_non_negative"),
+        CheckConstraint("max_stock IS NULL OR max_stock >= 0", name="ck_inventory_max_stock_non_negative"),
+        CheckConstraint(
+            "days_of_supply IS NULL OR days_of_supply >= 0",
+            name="ck_inventory_days_of_supply_non_negative",
+        ),
+        CheckConstraint("valuation IS NULL OR valuation >= 0", name="ck_inventory_valuation_non_negative"),
+        Index("ix_inventory_status_location", "status", "location"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)

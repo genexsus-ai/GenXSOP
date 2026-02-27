@@ -1,9 +1,12 @@
 from pydantic_settings import BaseSettings
 from typing import List
+from pydantic import model_validator
 
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./genxsop.db"
+    ENVIRONMENT: str = "development"
+    AUTO_CREATE_TABLES: bool = True
     SECRET_KEY: str = "genxsop-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
@@ -28,6 +31,26 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in {"prod", "production"}
+
+    @model_validator(mode="after")
+    def validate_production_safety(self):
+        if not self.is_production:
+            return self
+
+        if "sqlite" in self.DATABASE_URL.lower():
+            raise ValueError("SQLite is not allowed when ENVIRONMENT is production.")
+
+        if self.SECRET_KEY == "genxsop-super-secret-key-change-in-production":
+            raise ValueError("Default SECRET_KEY is not allowed in production.")
+
+        if self.AUTO_CREATE_TABLES:
+            raise ValueError("AUTO_CREATE_TABLES must be false in production; use Alembic migrations.")
+
+        return self
 
 
 settings = Settings()

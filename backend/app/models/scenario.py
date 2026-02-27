@@ -1,9 +1,31 @@
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Text, func
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Numeric,
+    DateTime,
+    ForeignKey,
+    Text,
+    CheckConstraint,
+    Index,
+    func,
+)
 from app.database import Base
 
 
 class Scenario(Base):
     __tablename__ = "scenarios"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'submitted', 'completed', 'approved', 'rejected')",
+            name="ck_scenarios_status",
+        ),
+        CheckConstraint(
+            "scenario_type IN ('what_if', 'baseline', 'stress_test')",
+            name="ck_scenarios_type",
+        ),
+        Index("ix_scenarios_status_created_at", "status", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)

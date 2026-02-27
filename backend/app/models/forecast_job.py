@@ -1,9 +1,17 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, func
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, CheckConstraint, Index, func
 from app.database import Base
 
 
 class ForecastJob(Base):
     __tablename__ = "forecast_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="ck_forecast_jobs_status",
+        ),
+        CheckConstraint("horizon >= 1", name="ck_forecast_jobs_horizon_min_1"),
+        Index("ix_forecast_jobs_status_created_at", "status", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(String(64), unique=True, index=True, nullable=False)
