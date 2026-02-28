@@ -185,6 +185,32 @@ export function ForecastingPage() {
   })
     .sort((a, b) => a.product_name.localeCompare(b.product_name))
 
+  const groupedForecastModels = Array.from(
+    forecasts.reduce((acc, f) => {
+      const key = `${f.product_id}::${f.model_type}`
+      if (!acc.has(key)) acc.set(key, [])
+      acc.get(key)!.push(f)
+      return acc
+    }, new Map<string, Forecast[]>()),
+  ).map(([key, items]) => {
+    const [productIdRaw, modelType] = key.split('::')
+    const productId = Number(productIdRaw)
+    const sorted = [...items].sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+    const sample = sorted[0]
+    return {
+      product_id: productId,
+      model_type: modelType,
+      product_name: sample?.product?.name ?? `#${productId}`,
+      count: sorted.length,
+      period_from: sorted[0]?.period,
+      period_to: sorted[sorted.length - 1]?.period,
+    }
+  }).sort((a, b) => {
+    const byProduct = a.product_name.localeCompare(b.product_name)
+    if (byProduct !== 0) return byProduct
+    return a.model_type.localeCompare(b.model_type)
+  })
+
   const handleDeleteForecastGroup = async (productId: number, productName: string) => {
     if (!confirm(`Delete all forecast results for ${productName}? This action cannot be undone.`)) return
     try {
@@ -623,7 +649,7 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage5' && (
-      <Card title="Step 5 · Manage Forecast Results" subtitle="Grouped results by product with delete action">
+      <Card title="Step 5 · Manage Forecast Results" subtitle="All executed models, ordered by product">
         {loading ? (
           <SkeletonTable rows={6} cols={4} />
         ) : forecasts.length === 0 ? (
@@ -636,24 +662,24 @@ export function ForecastingPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Product', 'Periods', 'Latest Model', 'Count', 'Actions'].map((h) => (
+                  {['Product', 'Model', 'Periods', 'Count', 'Actions'].map((h) => (
                     <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {groupedForecasts.slice(0, 10).map((g) => (
-                  <tr key={g.product_id} className="hover:bg-gray-50">
+                {groupedForecastModels.slice(0, 50).map((g) => (
+                  <tr key={`${g.product_id}-${g.model_type}`} className="hover:bg-gray-50">
                     <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
+                    <td className="py-2.5 pr-3">
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                        {g.model_type?.replace(/_/g, ' ') ?? '—'}
+                      </span>
+                    </td>
                     <td className="py-2.5 text-gray-600 pr-3">
                       {g.period_from && g.period_to
                         ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
                         : '—'}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                        {g.latest_model?.replace(/_/g, ' ') ?? '—'}
-                      </span>
                     </td>
                     <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
                     <td className="py-2.5">
