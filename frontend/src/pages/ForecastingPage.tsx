@@ -401,7 +401,7 @@ export function ForecastingPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId || !canGenerate}>
+          <Button icon={<Play />} loading={generating} onClick={handleGenerate} disabled={!selectedProductId || !canGenerate}>
             Generate Forecast
           </Button>
         </div>
