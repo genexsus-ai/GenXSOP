@@ -677,12 +677,26 @@ export function ForecastingPage() {
               <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={openConsensusModal}>
                 Edit
               </Button>
-              {canApproveConsensus && latestConsensus.status !== 'approved' && latestConsensus.status !== 'frozen' && (
-                <Button size="sm" icon={<Check className="h-4 w-4" />} loading={savingConsensus} onClick={handleApproveConsensus}>
-                  Approve
-                </Button>
-              )}
+              <Button
+                size="sm"
+                icon={<Check className="h-4 w-4" />}
+                loading={savingConsensus}
+                onClick={handleApproveConsensus}
+                disabled={!canApproveConsensus || latestConsensus.status === 'approved' || latestConsensus.status === 'frozen'}
+              >
+                Approve
+              </Button>
             </div>
+            {!canApproveConsensus && (
+              <p className="text-xs text-amber-700">
+                Approve requires role: admin, executive, or sop_coordinator.
+              </p>
+            )}
+            {(latestConsensus.status === 'approved' || latestConsensus.status === 'frozen') && (
+              <p className="text-xs text-gray-500">
+                This consensus is already {latestConsensus.status}.
+              </p>
+            )}
           </div>
         )}
       </Card>
