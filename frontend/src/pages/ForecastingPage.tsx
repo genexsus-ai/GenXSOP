@@ -1052,9 +1052,25 @@ export function ForecastingPage() {
                     <p className="text-[10px] uppercase tracking-wide text-blue-600">MAPE</p>
                     <p className="text-sm font-semibold text-blue-900">{formatPercent(selectedBacktestModelRow.mape)}</p>
                   </div>
+                  <div className="rounded bg-sky-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-sky-600">SMAPE</p>
+                    <p className="text-sm font-semibold text-sky-900">{formatPercent(selectedBacktestModelRow.smape)}</p>
+                  </div>
                   <div className="rounded bg-indigo-50 px-2 py-1">
                     <p className="text-[10px] uppercase tracking-wide text-indigo-600">RMSE</p>
                     <p className="text-sm font-semibold text-indigo-900">{formatNumber(selectedBacktestModelRow.rmse)}</p>
+                  </div>
+                  <div className="rounded bg-violet-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-violet-600">NRMSE %</p>
+                    <p className="text-sm font-semibold text-violet-900">{formatPercent(selectedBacktestModelRow.nrmse_pct)}</p>
+                  </div>
+                  <div className="rounded bg-cyan-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-cyan-600">MDAE</p>
+                    <p className="text-sm font-semibold text-cyan-900">{formatNumber(selectedBacktestModelRow.mdae)}</p>
+                  </div>
+                  <div className="rounded bg-teal-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-teal-600">R²</p>
+                    <p className="text-sm font-semibold text-teal-900">{selectedBacktestModelRow.r2.toFixed(4)}</p>
                   </div>
                   <div className="rounded bg-emerald-50 px-2 py-1">
                     <p className="text-[10px] uppercase tracking-wide text-emerald-600">Hit Rate</p>
@@ -1094,6 +1110,10 @@ export function ForecastingPage() {
                     <th className="text-left px-2 py-2">Model</th>
                     <th className="text-left px-2 py-2">Score</th>
                     <th className="text-left px-2 py-2">MAPE</th>
+                    <th className="text-left px-2 py-2">SMAPE</th>
+                    <th className="text-left px-2 py-2">NRMSE %</th>
+                    <th className="text-left px-2 py-2">MDAE</th>
+                    <th className="text-left px-2 py-2">R²</th>
                     <th className="text-left px-2 py-2">Best Params</th>
                     <th className="text-left px-2 py-2">Action</th>
                   </tr>
@@ -1104,6 +1124,10 @@ export function ForecastingPage() {
                       <td className="px-2 py-2">{m.model_type.replace(/_/g, ' ')}</td>
                       <td className="px-2 py-2">{m.score.toFixed(2)}</td>
                       <td className="px-2 py-2">{formatPercent(m.mape)}</td>
+                      <td className="px-2 py-2">{formatPercent(m.smape)}</td>
+                      <td className="px-2 py-2">{formatPercent(m.nrmse_pct)}</td>
+                      <td className="px-2 py-2">{formatNumber(m.mdae)}</td>
+                      <td className="px-2 py-2">{m.r2.toFixed(4)}</td>
                       <td className="px-2 py-2">
                         <pre className="text-[11px] whitespace-pre-wrap break-words text-gray-700 font-mono">
                           {formatParameterGridForDisplay(m.model_type, (m.best_params ?? m.model_params ?? {}) as Record<string, unknown>)}

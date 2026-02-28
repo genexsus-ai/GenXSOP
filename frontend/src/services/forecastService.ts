@@ -59,10 +59,14 @@ function normalizeAccuracy(items: AccuracyResponseItem[]): ForecastAccuracy[] {
     product_id: 0,
     model_type: i.model_type,
     mape: i.avg_mape,
+    smape: 0,
     wape: 0,
     bias: 0,
     rmse: 0,
+    nrmse_pct: 0,
     mae: 0,
+    mdae: 0,
+    r2: 0,
     hit_rate: 0,
     period_count: i.sample_count,
     sample_count: i.sample_count,
@@ -173,7 +177,11 @@ export const forecastService = {
     if (Array.isArray(data) && data.length > 0 && 'mape' in data[0]) {
       return data.map((row: any) => ({
         ...row,
+        smape: row.smape ?? 0,
         wape: row.wape ?? 0,
+        nrmse_pct: row.nrmse_pct ?? 0,
+        mdae: row.mdae ?? 0,
+        r2: row.r2 ?? 0,
         sample_count: row.sample_count ?? row.period_count,
         avg_mape: row.avg_mape ?? row.mape,
       }))

@@ -311,10 +311,14 @@ export interface ForecastAccuracy {
   product_id: number
   model_type: string
   mape: number
+  smape: number
   wape: number
   bias: number
   rmse: number
+  nrmse_pct: number
   mae: number
+  mdae: number
+  r2: number
   hit_rate: number
   period_count: number
   sample_count?: number
@@ -348,9 +352,13 @@ export interface ForecastModelComparisonItem {
   rank: number
   model_type: string
   mape: number
+  smape: number
   wape: number
   rmse: number
+  nrmse_pct: number
   mae: number
+  mdae: number
+  r2: number
   bias: number
   hit_rate: number
   period_count: number
@@ -361,9 +369,13 @@ export interface ForecastModelComparisonItem {
     model_type: string
     model_params?: Record<string, unknown>
     mape: number
+    smape: number
     wape: number
     rmse: number
+    nrmse_pct: number
     mae: number
+    mdae: number
+    r2: number
     bias: number
     hit_rate: number
     period_count: number

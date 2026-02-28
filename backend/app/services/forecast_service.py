@@ -6,6 +6,7 @@ from typing import Optional, List, Dict, Any
 from datetime import date
 from math import sqrt
 import json
+from statistics import median
 from decimal import Decimal
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -527,6 +528,8 @@ class ForecastService:
                 hits = 0
                 samples = 0
                 actual_sum = 0.0
+                actual_values: List[float] = []
+                predicted_values: List[float] = []
                 series_points: List[dict] = []
 
                 for split in range(start, n):
@@ -548,6 +551,8 @@ class ForecastService:
                             "predicted_qty": round(pred, 4),
                         })
                     actual_sum += abs(actual)
+                    actual_values.append(actual)
+                    predicted_values.append(pred)
                     if actual != 0:
                         pct = abs_err / abs(actual)
                         pct_errors.append(pct)
@@ -559,23 +564,25 @@ class ForecastService:
                 if samples == 0:
                     continue
 
-                mape = (sum(pct_errors) / len(pct_errors) * 100.0) if pct_errors else 0.0
-                wape = (sum(abs_errors) / actual_sum * 100.0) if actual_sum > 0 else 0.0
-                rmse = sqrt(sum(sq_errors) / len(sq_errors))
-                mae = sum(abs_errors) / len(abs_errors)
-                bias = (sum(bias_pct) / len(bias_pct) * 100.0) if bias_pct else 0.0
-                hit_rate = (hits / len(pct_errors) * 100.0) if pct_errors else 0.0
+                computed_metrics = self._build_error_metrics(
+                    abs_errors=abs_errors,
+                    sq_errors=sq_errors,
+                    pct_errors=pct_errors,
+                    bias_pct=bias_pct,
+                    hits=hits,
+                    actual_sum=actual_sum,
+                    actual_values=actual_values,
+                    predicted_values=predicted_values,
+                )
+
+                mape = computed_metrics["mape"]
+                wape = computed_metrics["wape"]
                 score = round(mape + (wape * 0.25), 4)
 
                 candidate_results.append({
                     "model_type": model_id,
                     "model_params": param_set,
-                    "mape": round(mape, 4),
-                    "wape": round(wape, 4),
-                    "rmse": round(rmse, 4),
-                    "mae": round(mae, 4),
-                    "bias": round(bias, 4),
-                    "hit_rate": round(hit_rate, 4),
+                    **computed_metrics,
                     "period_count": samples,
                     "score": score,
                     **({"series": series_points} if include_series else {}),
@@ -660,6 +667,8 @@ class ForecastService:
         bias_pct: List[float] = []
         hits = 0
         actual_sum = 0.0
+        actual_values: List[float] = []
+        predicted_values: List[float] = []
 
         for f in forecasts:
             actual = actual_by_period.get(str(f.period))
@@ -671,6 +680,8 @@ class ForecastService:
             abs_errors.append(abs_err)
             sq_errors.append(err ** 2)
             actual_sum += abs(actual)
+            actual_values.append(actual)
+            predicted_values.append(pred)
             if actual != 0:
                 pct = abs_err / abs(actual)
                 pct_errors.append(pct)
@@ -681,22 +692,71 @@ class ForecastService:
         if not abs_errors:
             return None
 
+        period_count = len(abs_errors)
+
+        computed_metrics = self._build_error_metrics(
+            abs_errors=abs_errors,
+            sq_errors=sq_errors,
+            pct_errors=pct_errors,
+            bias_pct=bias_pct,
+            hits=hits,
+            actual_sum=actual_sum,
+            actual_values=actual_values,
+            predicted_values=predicted_values,
+        )
+
+        return {
+            **computed_metrics,
+            "period_count": period_count,
+            "sample_count": period_count,
+            "avg_mape": computed_metrics["mape"],
+        }
+
+    def _build_error_metrics(
+        self,
+        *,
+        abs_errors: List[float],
+        sq_errors: List[float],
+        pct_errors: List[float],
+        bias_pct: List[float],
+        hits: int,
+        actual_sum: float,
+        actual_values: List[float],
+        predicted_values: List[float],
+    ) -> Dict[str, float]:
+        """Compute standard and advanced forecast performance measures."""
         mape = (sum(pct_errors) / len(pct_errors) * 100.0) if pct_errors else 0.0
         wape = (sum(abs_errors) / actual_sum * 100.0) if actual_sum > 0 else 0.0
         rmse = sqrt(sum(sq_errors) / len(sq_errors))
         mae = sum(abs_errors) / len(abs_errors)
+        mdae = median(abs_errors) if abs_errors else 0.0
+
+        smape_terms: List[float] = []
+        for actual, pred in zip(actual_values, predicted_values):
+            denominator = abs(actual) + abs(pred)
+            if denominator == 0:
+                continue
+            smape_terms.append((2.0 * abs(pred - actual)) / denominator)
+        smape = (sum(smape_terms) / len(smape_terms) * 100.0) if smape_terms else 0.0
+
+        mean_actual = (sum(actual_values) / len(actual_values)) if actual_values else 0.0
+        ss_res = sum((pred - actual) ** 2 for actual, pred in zip(actual_values, predicted_values))
+        ss_tot = sum((actual - mean_actual) ** 2 for actual in actual_values)
+        r2 = (1.0 - (ss_res / ss_tot)) if ss_tot > 0 else 0.0
+
         bias = (sum(bias_pct) / len(bias_pct) * 100.0) if bias_pct else 0.0
         hit_rate = (hits / len(pct_errors) * 100.0) if pct_errors else 0.0
-        period_count = len(abs_errors)
+        nrmse_pct = (rmse / abs(mean_actual) * 100.0) if mean_actual != 0 else 0.0
 
         return {
             "mape": round(mape, 4),
+            "smape": round(smape, 4),
             "wape": round(wape, 4),
             "rmse": round(rmse, 4),
+            "nrmse_pct": round(nrmse_pct, 4),
             "mae": round(mae, 4),
+            "mdae": round(mdae, 4),
+            "r2": round(r2, 4),
             "bias": round(bias, 4),
             "hit_rate": round(hit_rate, 4),
-            "period_count": period_count,
-            "sample_count": period_count,
-            "avg_mape": round(mape, 4),
         }
