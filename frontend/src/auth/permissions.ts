@@ -23,6 +23,7 @@ export type Permission =
   | 'scenario.write'
   | 'scenario.approve'
   | 'forecast.generate'
+  | 'forecast.consensus.approve'
   | 'inventory.update'
   | 'kpi.manage'
   | 'products.manage'
@@ -67,6 +68,7 @@ const PERMISSIONS: Record<Permission, UserRole[]> = {
   'scenario.approve': ['admin', 'executive'],
 
   'forecast.generate': ['admin', 'demand_planner', 'supply_planner', 'finance_analyst', 'sop_coordinator'],
+  'forecast.consensus.approve': ['admin', 'executive', 'sop_coordinator'],
 
   'inventory.update': ['admin', 'inventory_manager', 'supply_planner'],
   'kpi.manage': ['admin', 'executive'],

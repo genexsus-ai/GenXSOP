@@ -6,6 +6,7 @@ from app.services.scenario_service import ScenarioService
 from app.services.sop_cycle_service import SOPCycleService
 from app.services.kpi_service import KPIService
 from app.services.forecast_service import ForecastService
+from app.services.forecast_consensus_service import ForecastConsensusService
 from app.services.dashboard_service import DashboardService
 from app.services.integration_service import IntegrationService
 
@@ -17,6 +18,7 @@ __all__ = [
     "SOPCycleService",
     "KPIService",
     "ForecastService",
+    "ForecastConsensusService",
     "DashboardService",
     "IntegrationService",
 ]

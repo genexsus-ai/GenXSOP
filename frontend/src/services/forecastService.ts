@@ -10,6 +10,10 @@ import type {
   ForecastDriftAlert,
   ForecastPromoteResponse,
   ForecastModelType,
+  ForecastConsensus,
+  CreateForecastConsensusRequest,
+  UpdateForecastConsensusRequest,
+  ApproveForecastConsensusRequest,
 } from '@/types'
 
 /**
@@ -177,6 +181,31 @@ export const forecastService = {
 
   async getAnomalies(params?: { product_id?: number }) {
     const res = await api.get('/forecasting/anomalies', { params })
+    return res.data
+  },
+
+  async getConsensus(params?: {
+    product_id?: number
+    status?: 'draft' | 'proposed' | 'approved' | 'frozen'
+    period_from?: string
+    period_to?: string
+  }): Promise<ForecastConsensus[]> {
+    const res = await api.get<ForecastConsensus[]>('/forecasting/consensus', { params })
+    return res.data ?? []
+  },
+
+  async createConsensus(data: CreateForecastConsensusRequest): Promise<ForecastConsensus> {
+    const res = await api.post<ForecastConsensus>('/forecasting/consensus', data)
+    return res.data
+  },
+
+  async updateConsensus(consensusId: number, data: UpdateForecastConsensusRequest): Promise<ForecastConsensus> {
+    const res = await api.patch<ForecastConsensus>(`/forecasting/consensus/${consensusId}`, data)
+    return res.data
+  },
+
+  async approveConsensus(consensusId: number, data?: ApproveForecastConsensusRequest): Promise<ForecastConsensus> {
+    const res = await api.post<ForecastConsensus>(`/forecasting/consensus/${consensusId}/approve`, data ?? {})
     return res.data
   },
 }

@@ -11,6 +11,13 @@ import json
 from app.database import get_db
 from app.models.user import User
 from app.dependencies import get_current_user, require_roles
+from app.schemas.forecast_consensus import (
+    ForecastConsensusCreate,
+    ForecastConsensusUpdate,
+    ForecastConsensusApproveRequest,
+    ForecastConsensusResponse,
+)
+from app.services.forecast_consensus_service import ForecastConsensusService
 from app.services.forecast_service import ForecastService
 from app.services.forecast_job_service import forecast_job_service
 
@@ -22,6 +29,10 @@ OPS_ROLES = ["admin", "sop_coordinator", "executive"]
 
 def get_forecast_service(db: Session = Depends(get_db)) -> ForecastService:
     return ForecastService(db)
+
+
+def get_forecast_consensus_service(db: Session = Depends(get_db)) -> ForecastConsensusService:
+    return ForecastConsensusService(db)
 
 
 @router.get("/models")
@@ -339,4 +350,58 @@ def promote_forecast_results(
         horizon=horizon,
         user_id=current_user.id,
         notes=notes,
+    )
+
+
+@router.get("/consensus", response_model=List[ForecastConsensusResponse])
+def list_consensus_records(
+    product_id: Optional[int] = None,
+    status: Optional[str] = None,
+    period_from: Optional[date] = None,
+    period_to: Optional[date] = None,
+    service: ForecastConsensusService = Depends(get_forecast_consensus_service),
+    _: User = Depends(get_current_user),
+):
+    return service.list_consensus(
+        product_id=product_id,
+        status=status,
+        period_from=period_from,
+        period_to=period_to,
+    )
+
+
+@router.post("/consensus", response_model=ForecastConsensusResponse, status_code=201)
+def create_consensus_record(
+    data: ForecastConsensusCreate,
+    service: ForecastConsensusService = Depends(get_forecast_consensus_service),
+    current_user: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    return service.create_consensus(data=data, user_id=current_user.id)
+
+
+@router.patch("/consensus/{consensus_id}", response_model=ForecastConsensusResponse)
+def update_consensus_record(
+    consensus_id: int,
+    data: ForecastConsensusUpdate,
+    service: ForecastConsensusService = Depends(get_forecast_consensus_service),
+    current_user: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    return service.update_consensus(
+        consensus_id=consensus_id,
+        data=data,
+        user_id=current_user.id,
+    )
+
+
+@router.post("/consensus/{consensus_id}/approve", response_model=ForecastConsensusResponse)
+def approve_consensus_record(
+    consensus_id: int,
+    body: ForecastConsensusApproveRequest,
+    service: ForecastConsensusService = Depends(get_forecast_consensus_service),
+    current_user: User = Depends(require_roles(OPS_ROLES)),
+):
+    return service.approve_consensus(
+        consensus_id=consensus_id,
+        body=body,
+        approver_id=current_user.id,
     )

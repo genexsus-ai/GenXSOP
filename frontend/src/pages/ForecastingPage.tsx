@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Eye, Play, TrendingUp, Target, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, Brain, Check, Edit3, Eye, Play, TrendingUp, Target, Trash2, Upload } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { demandService } from '@/services/demandService'
 import { productService } from '@/services/productService'
@@ -13,6 +13,7 @@ import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
 import type {
   Forecast,
   ForecastAccuracy,
+  ForecastConsensus,
   ForecastDriftAlert,
   GenerateForecastRequest,
   ForecastModelType,
@@ -54,6 +55,7 @@ type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
 export function ForecastingPage() {
   const { user } = useAuthStore()
   const canGenerate = can(user?.role, 'forecast.generate')
+  const canApproveConsensus = can(user?.role, 'forecast.consensus.approve')
 
   const [forecasts, setForecasts] = useState<Forecast[]>([])
   const [accuracy, setAccuracy] = useState<ForecastAccuracy[]>([])
@@ -61,6 +63,19 @@ export function ForecastingPage() {
   const [generating, setGenerating] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
   const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
+  const [consensusRecords, setConsensusRecords] = useState<ForecastConsensus[]>([])
+  const [showConsensusModal, setShowConsensusModal] = useState(false)
+  const [savingConsensus, setSavingConsensus] = useState(false)
+  const [consensusForm, setConsensusForm] = useState({
+    period: '',
+    baseline_qty: 0,
+    sales_override_qty: 0,
+    marketing_uplift_qty: 0,
+    finance_adjustment_qty: 0,
+    constraint_cap_qty: '',
+    status: 'draft' as ForecastConsensus['status'],
+    notes: '',
+  })
   const [latestGeneratedForecasts, setLatestGeneratedForecasts] = useState<Forecast[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined)
@@ -78,13 +93,15 @@ export function ForecastingPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const [fRes, aRes] = await Promise.all([
+      const [fRes, aRes, cRes] = await Promise.all([
         forecastService.getResults({ page_size: 50 }),
         forecastService.getAccuracy(),
+        forecastService.getConsensus(),
       ])
       const drift = await forecastService.getDriftAlerts({ threshold_pct: 8, min_points: 6 })
       setForecasts(fRes.items)
       setAccuracy(aRes)
+      setConsensusRecords(cRes)
       setDriftAlerts(drift)
     } catch {
       // handled
@@ -245,9 +262,125 @@ export function ForecastingPage() {
     }
   }
 
+  const openConsensusModal = () => {
+    const targetProductId = chartProductId ?? selectedProductId
+    if (!targetProductId) {
+      toast.error('Select a product first')
+      return
+    }
+    const sortedExisting = [...consensusRecords]
+      .filter((c) => Number(c.product_id) === Number(targetProductId))
+      .sort((a, b) => {
+        const byPeriod = new Date(a.period).getTime() - new Date(b.period).getTime()
+        if (byPeriod !== 0) return byPeriod
+        return a.version - b.version
+      })
+    const existing = sortedExisting.length > 0 ? sortedExisting[sortedExisting.length - 1] : undefined
+
+    setConsensusForm({
+      period: existing?.period ?? new Date().toISOString().slice(0, 10),
+      baseline_qty: existing?.baseline_qty ?? 0,
+      sales_override_qty: existing?.sales_override_qty ?? 0,
+      marketing_uplift_qty: existing?.marketing_uplift_qty ?? 0,
+      finance_adjustment_qty: existing?.finance_adjustment_qty ?? 0,
+      constraint_cap_qty: existing?.constraint_cap_qty != null ? String(existing.constraint_cap_qty) : '',
+      status: existing?.status ?? 'draft',
+      notes: existing?.notes ?? '',
+    })
+    setShowConsensusModal(true)
+  }
+
+  const handleSaveConsensus = async () => {
+    const targetProductId = chartProductId ?? selectedProductId
+    if (!targetProductId) {
+      toast.error('Select a product first')
+      return
+    }
+    if (!consensusForm.period) {
+      toast.error('Period is required')
+      return
+    }
+
+    const samePeriodRows = [...consensusRecords]
+      .filter((c) => Number(c.product_id) === Number(targetProductId) && c.period === consensusForm.period)
+      .sort((a, b) => b.version - a.version)
+    const samePeriodLatest = samePeriodRows.length > 0 ? samePeriodRows[0] : undefined
+
+    setSavingConsensus(true)
+    try {
+      const payload = {
+        baseline_qty: Number(consensusForm.baseline_qty || 0),
+        sales_override_qty: Number(consensusForm.sales_override_qty || 0),
+        marketing_uplift_qty: Number(consensusForm.marketing_uplift_qty || 0),
+        finance_adjustment_qty: Number(consensusForm.finance_adjustment_qty || 0),
+        constraint_cap_qty: consensusForm.constraint_cap_qty === '' ? null : Number(consensusForm.constraint_cap_qty),
+        status: consensusForm.status,
+        notes: consensusForm.notes || undefined,
+      }
+
+      if (samePeriodLatest) {
+        await forecastService.updateConsensus(samePeriodLatest.id, payload)
+        toast.success('Consensus updated')
+      } else {
+        await forecastService.createConsensus({
+          product_id: targetProductId,
+          period: consensusForm.period,
+          ...payload,
+        })
+        toast.success('Consensus created')
+      }
+      setShowConsensusModal(false)
+      await load()
+    } catch {
+      // handled by interceptors
+    } finally {
+      setSavingConsensus(false)
+    }
+  }
+
+  const handleApproveConsensus = async () => {
+    if (!latestConsensus) return
+    setSavingConsensus(true)
+    try {
+      await forecastService.approveConsensus(latestConsensus.id, { notes: 'Approved from Forecasting UI' })
+      toast.success('Consensus approved')
+      await load()
+    } catch {
+      // handled by interceptors
+    } finally {
+      setSavingConsensus(false)
+    }
+  }
+
   const avgMape = accuracy.length > 0
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
+
+  const draftPreConsensus = Math.max(
+    0,
+    Number(consensusForm.baseline_qty || 0)
+      + Number(consensusForm.sales_override_qty || 0)
+      + Number(consensusForm.marketing_uplift_qty || 0)
+      + Number(consensusForm.finance_adjustment_qty || 0),
+  )
+  const draftCap = consensusForm.constraint_cap_qty === ''
+    ? null
+    : Number(consensusForm.constraint_cap_qty)
+  const draftFinalConsensus = draftCap == null
+    ? draftPreConsensus
+    : Math.max(0, Math.min(draftPreConsensus, draftCap))
+
+  const selectedConsensus = [...consensusRecords]
+    .filter((c) => !chartProductId || Number(c.product_id) === Number(chartProductId))
+    .sort((a, b) => {
+      const byPeriod = new Date(a.period).getTime() - new Date(b.period).getTime()
+      if (byPeriod !== 0) return byPeriod
+      return a.version - b.version
+    })
+
+  const latestConsensus = selectedConsensus.length > 0
+    ? selectedConsensus[selectedConsensus.length - 1]
+    : null
 
   const selectedProductAccuracy = chartProductId
     ? accuracy.filter((a) => Number(a.product_id) === Number(chartProductId))
@@ -514,6 +647,50 @@ export function ForecastingPage() {
         <KPICard title="Models Evaluated" value={accuracy.length}
           icon={<Brain className="h-4 w-4" />} color="indigo" />
       </div>
+      )}
+
+      {activeStage === 'stage4' && (
+      <Card title="Consensus Quantity Snapshot" subtitle="Latest cross-functional agreed demand value">
+        {!latestConsensus ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-gray-500">No consensus records available for selected product.</p>
+            <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={openConsensusModal}>
+              Create
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div>
+                <p className="text-xs text-gray-500">Period</p>
+                <p className="text-sm font-medium text-gray-900">{formatPeriod(latestConsensus.period)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Final Consensus</p>
+                <p className="text-sm font-semibold text-emerald-700">{formatNumber(latestConsensus.final_consensus_qty)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Pre-Consensus</p>
+                <p className="text-sm text-gray-900">{formatNumber(latestConsensus.pre_consensus_qty)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-sm text-gray-900 capitalize">{latestConsensus.status}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={openConsensusModal}>
+                Edit
+              </Button>
+              {canApproveConsensus && latestConsensus.status !== 'approved' && latestConsensus.status !== 'frozen' && (
+                <Button size="sm" icon={<Check className="h-4 w-4" />} loading={savingConsensus} onClick={handleApproveConsensus}>
+                  Approve
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
       )}
 
       {activeStage === 'stage4' && (
@@ -812,6 +989,106 @@ export function ForecastingPage() {
               className="w-full" />
             <div className="flex justify-between text-xs text-gray-400 mt-1">
               <span>1 month</span><span>24 months</span>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showConsensusModal}
+        onClose={() => setShowConsensusModal(false)}
+        title="Consensus Quantity"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowConsensusModal(false)}>Cancel</Button>
+            <Button loading={savingConsensus} onClick={handleSaveConsensus} disabled={!canGenerate}>Save</Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Period *</label>
+            <input
+              type="date"
+              value={consensusForm.period}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, period: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Status</label>
+            <select
+              value={consensusForm.status}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, status: e.target.value as ForecastConsensus['status'] }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            >
+              <option value="draft">draft</option>
+              <option value="proposed">proposed</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Baseline Qty</label>
+            <input
+              type="number"
+              value={consensusForm.baseline_qty}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, baseline_qty: Number(e.target.value) }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Sales Override</label>
+            <input
+              type="number"
+              value={consensusForm.sales_override_qty}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, sales_override_qty: Number(e.target.value) }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Marketing Uplift</label>
+            <input
+              type="number"
+              value={consensusForm.marketing_uplift_qty}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, marketing_uplift_qty: Number(e.target.value) }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Finance Adjustment</label>
+            <input
+              type="number"
+              value={consensusForm.finance_adjustment_qty}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, finance_adjustment_qty: Number(e.target.value) }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Constraint Cap (optional)</label>
+            <input
+              type="number"
+              value={consensusForm.constraint_cap_qty}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, constraint_cap_qty: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Notes</label>
+            <textarea
+              rows={3}
+              value={consensusForm.notes}
+              onChange={(e) => setConsensusForm((prev) => ({ ...prev, notes: e.target.value }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            />
+          </div>
+          <div className="md:col-span-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+            <p className="text-xs font-medium text-blue-800 mb-1">Live Calculation Preview</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+              <p className="text-blue-900">
+                Pre-Consensus: <span className="font-semibold">{formatNumber(draftPreConsensus)}</span>
+              </p>
+              <p className="text-blue-900">
+                Final Consensus: <span className="font-semibold">{formatNumber(draftFinalConsensus)}</span>
+              </p>
             </div>
           </div>
         </div>

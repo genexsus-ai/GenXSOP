@@ -16,3 +16,9 @@ from app.schemas.integration import (
     ERPDemandActualSyncRequest,
     IntegrationOperationResponse,
 )
+from app.schemas.forecast_consensus import (
+    ForecastConsensusCreate,
+    ForecastConsensusUpdate,
+    ForecastConsensusApproveRequest,
+    ForecastConsensusResponse,
+)

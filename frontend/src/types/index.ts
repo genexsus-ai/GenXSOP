@@ -293,6 +293,55 @@ export interface ForecastPromoteResponse {
   periods: string[]
 }
 
+export type ForecastConsensusStatus = 'draft' | 'proposed' | 'approved' | 'frozen'
+
+export interface ForecastConsensus {
+  id: number
+  product_id: number
+  period: string
+  baseline_qty: number
+  sales_override_qty: number
+  marketing_uplift_qty: number
+  finance_adjustment_qty: number
+  constraint_cap_qty?: number | null
+  pre_consensus_qty: number
+  final_consensus_qty: number
+  status: ForecastConsensusStatus
+  notes?: string | null
+  approved_by?: number | null
+  approved_at?: string | null
+  version: number
+  created_by?: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateForecastConsensusRequest {
+  product_id: number
+  period: string
+  baseline_qty: number
+  sales_override_qty?: number
+  marketing_uplift_qty?: number
+  finance_adjustment_qty?: number
+  constraint_cap_qty?: number | null
+  status?: ForecastConsensusStatus
+  notes?: string
+}
+
+export interface UpdateForecastConsensusRequest {
+  baseline_qty?: number
+  sales_override_qty?: number
+  marketing_uplift_qty?: number
+  finance_adjustment_qty?: number
+  constraint_cap_qty?: number | null
+  status?: ForecastConsensusStatus
+  notes?: string
+}
+
+export interface ApproveForecastConsensusRequest {
+  notes?: string
+}
+
 // ── Scenario ──────────────────────────────────────────────────────────────────
 
 export type ScenarioType = 'what_if' | 'best_case' | 'worst_case' | 'baseline'
