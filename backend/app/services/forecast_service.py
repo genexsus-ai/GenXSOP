@@ -455,8 +455,12 @@ class ForecastService:
         n = len(df)
 
         for model_id in model_ids:
-            strategy = ForecastModelFactory.create(model_id)
-            min_history = max(3, min_train_months, strategy.min_data_months)
+            # Backtesting should benchmark *all* registered models, not only those
+            # whose strict minimum history threshold is met. Each strategy already
+            # has guarded fallback behavior (e.g., ARIMA -> exp smoothing -> moving
+            # average), so we can safely evaluate every model with a shared minimum
+            # training window.
+            min_history = max(3, min_train_months)
             if n <= min_history:
                 continue
 
