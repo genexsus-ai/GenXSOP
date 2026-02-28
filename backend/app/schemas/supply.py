@@ -59,11 +59,20 @@ class GapAnalysisItem(BaseModel):
     product_name: str
     sku: str
     period: date
+    consensus_demand_qty: Decimal
     demand_qty: Decimal
+    planned_production_qty: Decimal
+    actual_production_qty: Decimal
     planned_supply_qty: Decimal
     inventory_available_qty: Decimal
     effective_supply_qty: Decimal
     additional_prod_required_qty: Decimal
+    plan_gap_qty: Decimal
+    plan_gap_pct: float
+    actual_gap_qty: Decimal
+    actual_gap_pct: float
+    coverage_gap_qty: Decimal
+    coverage_gap_pct: float
     supply_qty: Decimal
     gap: Decimal
     gap_pct: float

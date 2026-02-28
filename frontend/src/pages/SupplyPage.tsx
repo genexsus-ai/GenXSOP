@@ -139,8 +139,8 @@ export function SupplyPage() {
       (plan) => plan.product_id === item.product_id && plan.period.slice(0, 10) === normalizedPeriod,
     )
 
-    const currentPlanned = Number(existingPlan?.planned_prod_qty ?? item.planned_supply_qty ?? 0)
-    const requiredIncrease = item.gap < 0 ? Math.abs(Number(item.gap)) : 0
+    const currentPlanned = Number(existingPlan?.planned_prod_qty ?? item.planned_production_qty ?? item.planned_supply_qty ?? 0)
+    const requiredIncrease = item.plan_gap_qty < 0 ? Math.abs(Number(item.plan_gap_qty)) : 0
     const targetPlanned = currentPlanned + requiredIncrease
 
     setForm({
@@ -275,7 +275,7 @@ export function SupplyPage() {
 
       <Card
         title="Supply Gap Analysis"
-        subtitle="Planned supply + available inventory against demand"
+        subtitle="Plan Gap (Production vs Consensus) and Coverage Gap (Production + Inventory vs Consensus)"
         actions={
           <div className="flex items-end gap-2">
             <div>
@@ -327,13 +327,18 @@ export function SupplyPage() {
                   {[
                     'Product',
                     'Period',
-                    'Demand',
-                    'Planned Supply',
+                    'Consensus Demand',
+                    'Planned Production',
+                    'Actual Production',
                     'Inventory Available',
                     'Effective Supply',
                     'Additional Prod Required',
-                    'Gap',
-                    'Gap %',
+                    'Plan Gap',
+                    'Plan Gap %',
+                    'Actual Gap',
+                    'Actual Gap %',
+                    'Coverage Gap',
+                    'Coverage Gap %',
                     'Status',
                     'Action',
                   ].map((h) => (
@@ -351,22 +356,35 @@ export function SupplyPage() {
                       <p className="text-xs text-gray-500">{item.sku}</p>
                     </td>
                     <td className="px-4 py-2.5 text-gray-700">{formatPeriod(item.period)}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.demand_qty)}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.planned_supply_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.consensus_demand_qty ?? item.demand_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.planned_production_qty ?? item.planned_supply_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.actual_production_qty)}</td>
                     <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.inventory_available_qty)}</td>
                     <td className="px-4 py-2.5 tabular-nums font-medium text-gray-900">{formatNumber(item.effective_supply_qty)}</td>
                     <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.additional_prod_required_qty)}</td>
-                    <td className={`px-4 py-2.5 tabular-nums font-medium ${item.gap < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {formatNumber(item.gap)}
+                    <td className={`px-4 py-2.5 tabular-nums font-medium ${item.plan_gap_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatNumber(item.plan_gap_qty)}
                     </td>
-                    <td className={`px-4 py-2.5 tabular-nums ${item.gap_pct < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {item.gap_pct.toFixed(1)}%
+                    <td className={`px-4 py-2.5 tabular-nums ${item.plan_gap_pct < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {item.plan_gap_pct.toFixed(1)}%
+                    </td>
+                    <td className={`px-4 py-2.5 tabular-nums font-medium ${item.actual_gap_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatNumber(item.actual_gap_qty)}
+                    </td>
+                    <td className={`px-4 py-2.5 tabular-nums ${item.actual_gap_pct < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {item.actual_gap_pct.toFixed(1)}%
+                    </td>
+                    <td className={`px-4 py-2.5 tabular-nums font-medium ${item.coverage_gap_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatNumber(item.coverage_gap_qty)}
+                    </td>
+                    <td className={`px-4 py-2.5 tabular-nums ${item.coverage_gap_pct < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {item.coverage_gap_pct.toFixed(1)}%
                     </td>
                     <td className="px-4 py-2.5"><StatusBadge status={item.status} size="sm" /></td>
                     <td className="px-4 py-2.5">
                       {canWrite ? (
                         <Button variant="outline" size="sm" onClick={() => handleCloseGap(item)}>
-                          {item.gap < 0
+                          {item.plan_gap_qty < 0
                             ? (plans.some((plan) => plan.product_id === item.product_id && plan.period.slice(0, 10) === item.period.slice(0, 10))
                               ? 'Adjust Plan'
                               : 'Close Gap')

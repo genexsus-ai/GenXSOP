@@ -96,6 +96,7 @@ class SupplyService:
             supply_plans = [sp for sp in supply_plans if int(sp.product_id) == int(product_id)]
 
         supply_map = {sp.product_id: (sp.planned_prod_qty or Decimal("0")) for sp in supply_plans}
+        actual_prod_map = {sp.product_id: (sp.actual_prod_qty or Decimal("0")) for sp in supply_plans}
 
         inventory_records = self._inventory_repo.get_all_inventory()
         if product_id is not None:
@@ -115,11 +116,27 @@ class SupplyService:
             product = self._product_repo.get_by_id(dp.product_id)
             demand = dp.consensus_qty or dp.adjusted_qty or dp.forecast_qty
             planned_supply = supply_map.get(dp.product_id, Decimal("0"))
+            actual_production = actual_prod_map.get(dp.product_id, Decimal("0"))
             inventory_available = inventory_available_map.get(dp.product_id, Decimal("0"))
             effective_supply = planned_supply + inventory_available
             additional_prod_required = max(demand - inventory_available, Decimal("0"))
-            gap = effective_supply - demand
-            gap_pct = float(gap / demand * 100) if demand else 0.0
+
+            # Plan alignment gap: production plan vs consensus demand.
+            plan_gap = planned_supply - demand
+            plan_gap_pct = float(plan_gap / demand * 100) if demand else 0.0
+
+            # Execution alignment gap: realized production vs consensus demand.
+            actual_gap = actual_production - demand
+            actual_gap_pct = float(actual_gap / demand * 100) if demand else 0.0
+
+            # Coverage gap: production + inventory vs consensus demand.
+            coverage_gap = effective_supply - demand
+            coverage_gap_pct = float(coverage_gap / demand * 100) if demand else 0.0
+
+            # Backward-compatible aliases retained for existing consumers.
+            gap = coverage_gap
+            gap_pct = coverage_gap_pct
+
             status = "balanced"
             if gap_pct < -20:
                 status = "critical"
@@ -127,16 +144,26 @@ class SupplyService:
                 status = "shortage"
             elif gap_pct > 20:
                 status = "excess"
+
             result.append(GapAnalysisItem(
                 product_id=dp.product_id,
                 product_name=product.name if product else "Unknown",
                 sku=product.sku if product else "N/A",
                 period=target_period,
+                consensus_demand_qty=demand,
                 demand_qty=demand,
+                planned_production_qty=planned_supply,
+                actual_production_qty=actual_production,
                 planned_supply_qty=planned_supply,
                 inventory_available_qty=inventory_available,
                 effective_supply_qty=effective_supply,
                 additional_prod_required_qty=additional_prod_required,
+                plan_gap_qty=plan_gap,
+                plan_gap_pct=plan_gap_pct,
+                actual_gap_qty=actual_gap,
+                actual_gap_pct=actual_gap_pct,
+                coverage_gap_qty=coverage_gap,
+                coverage_gap_pct=coverage_gap_pct,
                 supply_qty=effective_supply,
                 gap=gap,
                 gap_pct=gap_pct,

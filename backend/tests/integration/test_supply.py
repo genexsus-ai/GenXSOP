@@ -131,13 +131,24 @@ class TestSupplyGapAnalysis:
 
         item = data[0]
         assert item["product_id"] == demand_plan.product_id
+        assert float(item["consensus_demand_qty"]) == 500.0
         assert float(item["demand_qty"]) == 500.0
+        assert float(item["planned_production_qty"]) == 480.0
+        assert float(item["actual_production_qty"]) == 0.0
         assert float(item["planned_supply_qty"]) == 480.0
         assert float(item["inventory_available_qty"]) == 200.0
         assert float(item["effective_supply_qty"]) == 680.0
         assert float(item["additional_prod_required_qty"]) == 300.0
+        assert float(item["plan_gap_qty"]) == -20.0
+        assert float(item["plan_gap_pct"]) == -4.0
+        assert float(item["actual_gap_qty"]) == -500.0
+        assert float(item["actual_gap_pct"]) == -100.0
+        assert float(item["coverage_gap_qty"]) == 180.0
+        assert float(item["coverage_gap_pct"]) == 36.0
         assert float(item["supply_qty"]) == 680.0
+        # backward-compatible aliases map to coverage metrics
         assert float(item["gap"]) == 180.0
+        assert float(item["gap_pct"]) == 36.0
 
     def test_filter_supply_by_product(self, client: TestClient, admin_headers, supply_plan, product):
         resp = client.get(

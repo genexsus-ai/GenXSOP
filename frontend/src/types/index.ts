@@ -165,11 +165,20 @@ export interface SupplyGapAnalysisItem {
   product_name: string
   sku: string
   period: string
+  consensus_demand_qty: number
   demand_qty: number
+  planned_production_qty: number
+  actual_production_qty: number
   planned_supply_qty: number
   inventory_available_qty: number
   effective_supply_qty: number
   additional_prod_required_qty: number
+  plan_gap_qty: number
+  plan_gap_pct: number
+  actual_gap_qty: number
+  actual_gap_pct: number
+  coverage_gap_qty: number
+  coverage_gap_pct: number
   supply_qty: number
   gap: number
   gap_pct: number
