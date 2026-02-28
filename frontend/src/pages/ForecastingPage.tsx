@@ -1439,6 +1439,14 @@ export function ForecastingPage() {
           title="Forecast Curve"
           subtitle={`Historical + prediction + consensus with confidence interval${chartProductId ? ` · Product: ${chartProduct ? `${chartProduct.name} (${chartProduct.sku})` : `#${chartProductId}`}` : ''}${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
         >
+          <div className="mb-3 text-sm text-gray-700">
+            <span className="font-medium">Model used:</span>{' '}
+            <span className="text-gray-900">
+              {(selectedForecastModelType ?? (forecastModelUsed ? forecastModelUsed.replace(/ /g, '_') : undefined))
+                ? (selectedForecastModelType ?? forecastModelUsed)?.replace(/_/g, ' ')
+                : '—'}
+            </span>
+          </div>
           {bestModelDisplay && (
             <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
               <span className="font-semibold">Best Model (Score):</span>{' '}
