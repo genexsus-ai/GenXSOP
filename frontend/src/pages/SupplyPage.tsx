@@ -30,7 +30,7 @@ export function SupplyPage() {
   const [gapAnalysis, setGapAnalysis] = useState<SupplyGapAnalysisItem[]>([])
   const [gapLoading, setGapLoading] = useState(false)
   const [gapProductId, setGapProductId] = useState<number | undefined>(undefined)
-  const [gapPeriod, setGapPeriod] = useState<string>(new Date().toISOString().slice(0, 7))
+  const [gapPeriod, setGapPeriod] = useState<string>('')
   const [form, setForm] = useState<Partial<CreateSupplyPlanRequest>>({ location: 'Main Warehouse' })
 
   const load = async () => {
@@ -79,6 +79,11 @@ export function SupplyPage() {
 
   useEffect(() => { load() }, [filters])
   useEffect(() => { loadProducts() }, [])
+  useEffect(() => {
+    if (!gapPeriod && plans.length > 0) {
+      setGapPeriod(plans[0].period.slice(0, 7))
+    }
+  }, [plans, gapPeriod])
   useEffect(() => { loadGapAnalysis() }, [gapProductId, gapPeriod])
 
   const handleAction = async (id: number, action: 'submit' | 'approve' | 'reject') => {
@@ -259,7 +264,14 @@ export function SupplyPage() {
         {gapLoading ? (
           <SkeletonTable rows={6} cols={10} />
         ) : gapAnalysis.length === 0 ? (
-          <p className="text-sm text-gray-500">No gap analysis data found for the selected filters.</p>
+          <div className="space-y-1">
+            <p className="text-sm text-gray-500">No gap analysis data found for the selected filters.</p>
+            <p className="text-xs text-gray-400">
+              This usually means there are no demand plans for
+              {gapPeriod ? ` ${gapPeriod}-01` : ' the selected period'}.
+              Try Period: <span className="font-medium">2026-01</span>, Product: <span className="font-medium">All Products</span>, then click Refresh.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto border border-gray-100 rounded-lg">
             <table className="w-full text-sm">
