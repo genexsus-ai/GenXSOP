@@ -200,6 +200,28 @@ export function ForecastingPage() {
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
 
+  const selectedProductAccuracy = chartProductId
+    ? accuracy.filter((a) => Number(a.product_id) === Number(chartProductId))
+    : accuracy
+
+  const bestModelByScore = selectedProductAccuracy.length > 0
+    ? selectedProductAccuracy.reduce((best, current) => {
+      const bestScore = best.mape + (best.wape * 0.25)
+      const currentScore = current.mape + (current.wape * 0.25)
+      return currentScore < bestScore ? current : best
+    }, selectedProductAccuracy[0])
+    : null
+
+  const bestModelByScoreOverall = accuracy.length > 0
+    ? accuracy.reduce((best, current) => {
+      const bestScore = best.mape + (best.wape * 0.25)
+      const currentScore = current.mape + (current.wape * 0.25)
+      return currentScore < bestScore ? current : best
+    }, accuracy[0])
+    : null
+
+  const bestModelDisplay = bestModelByScore ?? bestModelByScoreOverall
+
   const bestModel = accuracy.length > 0
     ? accuracy.reduce((best, a) => a.mape < best.mape ? a : best, accuracy[0])
     : null
@@ -429,9 +451,11 @@ export function ForecastingPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard title="Avg MAPE" value={formatPercent(avgMape)} icon={<Target className="h-4 w-4" />} color="blue"
           subtitle="Mean Absolute % Error" />
-        <KPICard title="Best Model" value={bestModel?.model_type?.replace(/_/g, ' ') ?? '—'}
+        <KPICard title="Best Model (Score)" value={bestModelDisplay?.model_type?.replace(/_/g, ' ') ?? '—'}
           icon={<Brain className="h-4 w-4" />} color="emerald"
-          subtitle={bestModel ? `MAPE: ${formatPercent(bestModel.mape)}` : undefined} />
+          subtitle={bestModelDisplay
+            ? `Score: ${(bestModelDisplay.mape + (bestModelDisplay.wape * 0.25)).toFixed(2)} · Product #${bestModelDisplay.product_id}`
+            : undefined} />
         <KPICard title="Forecasts Generated" value={forecasts.length}
           icon={<TrendingUp className="h-4 w-4" />} color="purple" />
         <KPICard title="Models Evaluated" value={accuracy.length}
@@ -440,11 +464,32 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage4' && (
+      <Card title="Best Model Recommendation" subtitle="Composite score = MAPE + 0.25 × WAPE">
+        {bestModelDisplay ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <span className="font-semibold">Best model:</span> {bestModelDisplay.model_type.replace(/_/g, ' ')} ·
+            {' '}Score {(bestModelDisplay.mape + (bestModelDisplay.wape * 0.25)).toFixed(2)} ·
+            {' '}Product #{bestModelDisplay.product_id}
+            {!bestModelByScore && bestModelByScoreOverall ? ' (using overall data fallback)' : ''}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">Accuracy appears after actual demand is recorded for forecasted months.</p>
+        )}
+      </Card>
+      )}
+
+      {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
           title="Step 4 · Forecast Curve"
           subtitle={`Historical + prediction with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
         >
+          {bestModelDisplay && (
+            <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <span className="font-semibold">Best Model (Score):</span>{' '}
+              {bestModelDisplay.model_type.replace(/_/g, ' ')} · Score {(bestModelDisplay.mape + (bestModelDisplay.wape * 0.25)).toFixed(2)}
+            </div>
+          )}
           {chartData.length === 0 ? (
             <div className="text-center py-10 text-gray-400 text-sm">Select a product and generate forecast to visualize trend</div>
           ) : (
