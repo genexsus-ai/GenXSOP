@@ -966,7 +966,7 @@ export function ForecastingPage() {
         <div className="mb-3">
           <label className="block text-xs font-medium text-gray-700 mb-1">Parameter Grid (optional JSON)</label>
           <textarea
-            rows={4}
+            rows={12}
             value={backtestParameterGridText}
             onChange={(e) => setBacktestParameterGridText(e.target.value)}
             onBlur={() => {
@@ -979,7 +979,7 @@ export function ForecastingPage() {
                 // keep user input as-is until they fix JSON
               }
             }}
-            className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-lg font-mono"
+            className="w-full min-h-[280px] px-2.5 py-2 text-xs border border-gray-300 rounded-lg font-mono"
             placeholder={PARAMETER_GRID_EXAMPLE}
           />
           <p className="mt-1 text-[11px] text-gray-500">Format: model_id → array of parameter objects. Example includes all supported models; best parameter set is selected per model.</p>
