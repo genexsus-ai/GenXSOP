@@ -8,6 +8,7 @@ import { Button } from '@/components/common/Button'
 import { KPICard } from '@/components/common/KPICard'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
+import { StageTabs } from '@/components/forecasting/StageTabs'
 import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
 import type {
   Forecast,
@@ -45,6 +46,16 @@ const MODEL_TYPES = [
   { value: 'prophet', label: 'Prophet' },
 ]
 
+const FORECAST_STAGES = [
+  { key: 'stage1', label: '1. Historical' },
+  { key: 'stage2', label: '2. Model Setup' },
+  { key: 'stage3', label: '3. Sandbox' },
+  { key: 'stage4', label: '4. Forecast View' },
+  { key: 'stage5', label: '5. Manage Results' },
+] as const
+
+type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
+
 export function ForecastingPage() {
   const { user } = useAuthStore()
   const canGenerate = can(user?.role, 'forecast.generate')
@@ -69,6 +80,7 @@ export function ForecastingPage() {
     model_type: 'prophet',
     horizon_months: 6,
   })
+  const [activeStage, setActiveStage] = useState<ForecastStageKey>('stage1')
 
   const load = async () => {
     setLoading(true)
@@ -311,6 +323,25 @@ export function ForecastingPage() {
       hit_rate: a.hit_rate,
     }))
 
+  const stageEnabled: Record<ForecastStageKey, boolean> = {
+    stage1: true,
+    stage2: Boolean(selectedProductId),
+    stage3: Boolean(selectedProductId),
+    stage4: forecasts.length > 0,
+    stage5: true,
+  }
+
+  const stageStatus = (stage: ForecastStageKey): 'complete' | 'active' | 'locked' | 'ready' => {
+    if (activeStage === stage) return 'active'
+    if (!stageEnabled[stage]) return 'locked'
+    if (stage === 'stage1' && selectedProductId) return 'complete'
+    if (stage === 'stage2' && diagnostics) return 'complete'
+    if (stage === 'stage3' && sandbox) return 'complete'
+    if (stage === 'stage4' && forecasts.length > 0) return 'complete'
+    if (stage === 'stage5') return 'ready'
+    return 'ready'
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -333,6 +364,15 @@ export function ForecastingPage() {
         )}
       </div>
 
+      <StageTabs
+        stages={FORECAST_STAGES}
+        activeStage={activeStage}
+        stageEnabled={stageEnabled}
+        getStatus={stageStatus}
+        onSelect={setActiveStage}
+      />
+
+      {activeStage === 'stage1' && (
       <Card title="Step 1 · Select Product & Review Historical Demand" subtitle="View actual demand before generating forecast">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div className="md:col-span-2">
@@ -383,40 +423,62 @@ export function ForecastingPage() {
           </div>
         )}
       </Card>
-
-      {/* KPI row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Avg MAPE" value={formatPercent(avgMape)} icon={<Target className="h-4 w-4" />} color="blue"
-          subtitle="Mean Absolute % Error" />
-        <KPICard title="Best Model" value={bestModel?.model_type?.replace(/_/g, ' ') ?? '—'}
-          icon={<Brain className="h-4 w-4" />} color="emerald"
-          subtitle={bestModel ? `MAPE: ${formatPercent(bestModel.mape)}` : undefined} />
-        <KPICard title="Forecasts Generated" value={forecasts.length}
-          icon={<TrendingUp className="h-4 w-4" />} color="purple" />
-        <KPICard title="Models Evaluated" value={accuracy.length}
-          icon={<Brain className="h-4 w-4" />} color="indigo" />
-      </div>
-
-      {diagnostics && (
-        <Card title="AI Advisor Decision" subtitle="GenXAI model recommendation diagnostics">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">Selected Model</p>
-              <p className="font-semibold text-gray-900">{diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Advisor Confidence</p>
-              <p className="font-semibold text-gray-900">{formatPercent((diagnostics.advisor_confidence ?? 0) * 100, 0)}</p>
-            </div>
-            <div className="md:col-span-2">
-              <p className="text-gray-500">Reason</p>
-              <p className="text-gray-800">{diagnostics.selection_reason ?? 'No recommendation details.'}</p>
-            </div>
-          </div>
-        </Card>
       )}
 
-      {driftAlerts.length > 0 && (
+      {activeStage === 'stage2' && (
+      <Card title="Step 2 · Model Setup" subtitle="Configure model inputs and get advisor recommendation">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Type</label>
+            <select value={form.model_type ?? 'prophet'}
+              onChange={(e) => setForm((f) => ({ ...f, model_type: e.target.value as GenerateForecastRequest['model_type'] }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              {MODEL_TYPES.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Forecast Horizon (months)</label>
+            <input type="number" min={1} max={24} value={form.horizon_months ?? 6}
+              onChange={(e) => setForm((f) => ({ ...f, horizon_months: Number(e.target.value) }))}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" icon={<Sparkles />} loading={recommending} onClick={handleRecommend} disabled={!selectedProductId || !canGenerate}>
+            Get Recommendation
+          </Button>
+          <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox} disabled={!selectedProductId || !canGenerate}>
+            Run Sandbox
+          </Button>
+          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId || !canGenerate}>
+            Generate Forecast
+          </Button>
+        </div>
+      </Card>
+      )}
+
+      {activeStage === 'stage2' && diagnostics && (
+      <Card title="AI Advisor Decision" subtitle="GenXAI model recommendation diagnostics">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-gray-500">Selected Model</p>
+            <p className="font-semibold text-gray-900">{diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}</p>
+          </div>
+          <div>
+            <p className="text-gray-500">Advisor Confidence</p>
+            <p className="font-semibold text-gray-900">{formatPercent((diagnostics.advisor_confidence ?? 0) * 100, 0)}</p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="text-gray-500">Reason</p>
+            <p className="text-gray-800">{diagnostics.selection_reason ?? 'No recommendation details.'}</p>
+          </div>
+        </div>
+      </Card>
+      )}
+
+      {activeStage === 'stage3' && driftAlerts.length > 0 && (
         <Card title="Forecast Drift Alerts" subtitle="Month-over-month accuracy degradation detected">
           <div className="space-y-2">
             {driftAlerts.slice(0, 5).map((a, idx) => (
@@ -436,7 +498,7 @@ export function ForecastingPage() {
         </Card>
       )}
 
-      {sandbox && (
+      {activeStage === 'stage3' && sandbox && (
         <Card title="Forecast Sandbox" subtitle="Compare candidate models and promote preferred result to demand planning">
           <div className="mb-3 text-sm text-gray-700">
             <span className="font-medium">Recommended:</span> {sandbox.recommended_model?.replace(/_/g, ' ') ?? '—'} ·{' '}
@@ -477,60 +539,44 @@ export function ForecastingPage() {
         </Card>
       )}
 
+      {activeStage === 'stage4' && (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard title="Avg MAPE" value={formatPercent(avgMape)} icon={<Target className="h-4 w-4" />} color="blue"
+          subtitle="Mean Absolute % Error" />
+        <KPICard title="Best Model" value={bestModel?.model_type?.replace(/_/g, ' ') ?? '—'}
+          icon={<Brain className="h-4 w-4" />} color="emerald"
+          subtitle={bestModel ? `MAPE: ${formatPercent(bestModel.mape)}` : undefined} />
+        <KPICard title="Forecasts Generated" value={forecasts.length}
+          icon={<TrendingUp className="h-4 w-4" />} color="purple" />
+        <KPICard title="Models Evaluated" value={accuracy.length}
+          icon={<Brain className="h-4 w-4" />} color="indigo" />
+      </div>
+      )}
+
+      {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Forecast Results */}
-        <Card title="Recent Forecasts" subtitle={`${forecasts.length} results`}>
-          {loading ? (
-            <SkeletonTable rows={6} cols={4} />
-          ) : forecasts.length === 0 ? (
-            <div className="text-center py-10 text-gray-400">
-              <Brain className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No forecasts yet. Generate your first forecast.</p>
-            </div>
+        <Card title="Step 4 · Forecast Curve" subtitle="Historical + prediction with confidence interval">
+          {chartData.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">Select a product and generate forecast to visualize trend</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    {['Product', 'Periods', 'Latest Model', 'Count', 'Actions'].map((h) => (
-                      <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {groupedForecasts.slice(0, 10).map((g) => (
-                    <tr key={g.product_id} className="hover:bg-gray-50">
-                      <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
-                      <td className="py-2.5 text-gray-600 pr-3">
-                        {g.period_from && g.period_to
-                          ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
-                          : '—'}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                          {g.latest_model?.replace(/_/g, ' ') ?? '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
-                      <td className="py-2.5">
-                        <button
-                          onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}
-                          className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Delete all forecast results for this product"
-                          disabled={!canGenerate}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="period" tickMargin={8} />
+                  <YAxis width={56} />
+                  <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
+                  <Legend />
+                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Confidence (Upper)" connectNulls={false} />
+                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Confidence (Lower Mask)" connectNulls={false} />
+                  <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={false} name="Historical" connectNulls={false} />
+                  <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Prediction" connectNulls={false} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           )}
         </Card>
 
-        {/* Model Accuracy */}
         <Card title="Model Accuracy Comparison">
           {accuracy.length === 0 ? (
             <div className="text-center py-10 text-gray-400">
@@ -566,51 +612,84 @@ export function ForecastingPage() {
           )}
         </Card>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Step 2 · Forecast Curve" subtitle="Historical + prediction with confidence interval">
-          {chartData.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">Select a product and generate forecast to visualize trend</div>
-          ) : (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="period" tickMargin={8} />
-                  <YAxis width={56} />
-                  <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
-                  <Legend />
-                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Confidence (Upper)" connectNulls={false} />
-                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Confidence (Lower Mask)" connectNulls={false} />
-                  <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={false} name="Historical" connectNulls={false} />
-                  <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Prediction" connectNulls={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Card>
+      {activeStage === 'stage5' && (
+      <Card title="Step 5 · Manage Forecast Results" subtitle="Grouped results by product with delete action">
+        {loading ? (
+          <SkeletonTable rows={6} cols={4} />
+        ) : forecasts.length === 0 ? (
+          <div className="text-center py-10 text-gray-400">
+            <Brain className="h-8 w-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">No forecasts yet. Generate your first forecast.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Product', 'Periods', 'Latest Model', 'Count', 'Actions'].map((h) => (
+                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {groupedForecasts.slice(0, 10).map((g) => (
+                  <tr key={g.product_id} className="hover:bg-gray-50">
+                    <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
+                    <td className="py-2.5 text-gray-600 pr-3">
+                      {g.period_from && g.period_to
+                        ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
+                        : '—'}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                        {g.latest_model?.replace(/_/g, ' ') ?? '—'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
+                    <td className="py-2.5">
+                      <button
+                        onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}
+                        className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        title="Delete all forecast results for this product"
+                        disabled={!canGenerate}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      )}
 
-        <Card title="Error & Model Quality" subtitle="Cross-model accuracy overview">
-          {accuracyChartData.length === 0 ? (
-            <div className="text-center py-10 text-gray-400 text-sm">No accuracy metrics available yet</div>
-          ) : (
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={accuracyChartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="model" tickMargin={8} />
-                  <YAxis width={56} />
-                  <Tooltip formatter={(v: number) => formatPercent(v)} />
-                  <Legend />
-                  <Line type="monotone" dataKey="mape" stroke="#ef4444" strokeWidth={2} name="MAPE" />
-                  <Line type="monotone" dataKey="wape" stroke="#f59e0b" strokeWidth={2} name="WAPE" />
-                  <Line type="monotone" dataKey="hit_rate" stroke="#10b981" strokeWidth={2} name="Hit Rate" />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+      {(activeStage === 'stage3' && !sandbox && selectedProductId) && (
+        <Card title="Step 3 · Sandbox" subtitle="Run sandbox to compare candidate models">
+          <div className="text-sm text-gray-600 mb-3">No sandbox run yet for this product.</div>
+          <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox} disabled={!canGenerate}>
+            Run Sandbox
+          </Button>
         </Card>
-      </div>
+      )}
+
+      {(activeStage !== 'stage1' && !selectedProductId) && (
+        <Card title="Stage Locked" subtitle="Select a product in Stage 1 first">
+          <p className="text-sm text-gray-500">Please go to Stage 1 and select a product to continue.</p>
+        </Card>
+      )}
+
+      {(activeStage === 'stage4' && forecasts.length === 0) && (
+        <Card title="Step 4 · Forecast View" subtitle="Generate forecast first">
+          <div className="text-sm text-gray-600 mb-3">No forecast records yet for the selected product.</div>
+          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId || !canGenerate}>
+            Generate Forecast
+          </Button>
+        </Card>
+      )}
 
       {/* Generate Modal */}
       <Modal isOpen={showGenerate} onClose={() => setShowGenerate(false)} title="Generate Forecast"
