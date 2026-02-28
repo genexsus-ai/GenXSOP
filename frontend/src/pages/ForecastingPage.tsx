@@ -85,6 +85,16 @@ const PARAMETER_GRID_EXAMPLE = `{
   ]
 }`
 
+const MODEL_PARAMETER_EXAMPLES: Record<string, Record<string, unknown>> = {
+  moving_average: { window: 6 },
+  ewma: { alpha: 0.35 },
+  exp_smoothing: { alpha: 0.3, beta: 0.1 },
+  seasonal_naive: { season_length: 12 },
+  arima: { p: 1, d: 1, q: 1 },
+  prophet: { changepoint_prior_scale: 0.05, seasonality_mode: 'additive' },
+  lstm: { lookback_window: 12, hidden_size: 32, num_layers: 1, dropout: 0.1, epochs: 120, learning_rate: 0.01 },
+}
+
 type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
 
 export function ForecastingPage() {
@@ -139,6 +149,12 @@ export function ForecastingPage() {
   const [generationModelParamsText, setGenerationModelParamsText] = useState<string>('')
   const [activeStage, setActiveStage] = useState<ForecastStageKey>('stage1')
 
+  const selectedSetupModel = form.model_type ?? 'prophet'
+  const selectedModelExample = MODEL_PARAMETER_EXAMPLES[selectedSetupModel]
+  const selectedModelExampleText = selectedModelExample
+    ? JSON.stringify({ [selectedSetupModel]: [selectedModelExample] }, null, 2)
+    : '{}'
+
   const parseJsonObject = (raw: string): Record<string, unknown> | undefined => {
     const trimmed = raw.trim()
     if (!trimmed) return undefined
@@ -189,6 +205,42 @@ export function ForecastingPage() {
       throw new Error('Parameter grid must be a model -> [params] object')
     }
     return { [selectedModel]: [parsed] }
+  }
+
+  const normalizeGenerationParams = (
+    raw: string,
+    selectedModel?: string,
+  ): Record<string, unknown> | undefined => {
+    const parsed = parseJsonObject(raw)
+    if (!parsed) return undefined
+
+    const keys = Object.keys(parsed)
+    const looksLikeModelMap = keys.length > 0 && keys.every((k) => MODEL_TYPE_VALUES.has(k))
+
+    if (!looksLikeModelMap) return parsed
+
+    const modelKey = selectedModel && MODEL_TYPE_VALUES.has(selectedModel)
+      ? selectedModel
+      : keys[0]
+    const selectedValue = parsed[modelKey]
+
+    if (selectedValue == null) {
+      throw new Error('Selected model not found in provided model parameter object')
+    }
+
+    if (Array.isArray(selectedValue)) {
+      const first = selectedValue[0]
+      if (!first || typeof first !== 'object' || Array.isArray(first)) {
+        throw new Error('Model parameter list must contain JSON objects')
+      }
+      return first as Record<string, unknown>
+    }
+
+    if (typeof selectedValue === 'object') {
+      return selectedValue as Record<string, unknown>
+    }
+
+    throw new Error('Selected model parameters must be a JSON object or array of objects')
   }
 
   const load = async () => {
@@ -352,7 +404,7 @@ export function ForecastingPage() {
     const generatedProductId = form.product_id
     let parsedModelParams: Record<string, unknown> | undefined
     try {
-      parsedModelParams = parseJsonObject(generationModelParamsText)
+      parsedModelParams = normalizeGenerationParams(generationModelParamsText, form.model_type)
     } catch {
       toast.error('Model parameters must be a valid JSON object')
       return
@@ -1178,12 +1230,13 @@ export function ForecastingPage() {
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Parameters (optional JSON)</label>
             <textarea
-              rows={4}
+              rows={12}
               value={generationModelParamsText}
               onChange={(e) => setGenerationModelParamsText(e.target.value)}
-              className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-              placeholder='{"alpha":0.35}'
+              className="w-full min-h-[280px] px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              placeholder={selectedModelExampleText}
             />
+            <p className="mt-1 text-[11px] text-gray-500">Format (same as Backtesting Parameter Grid): model_id → array of parameter objects. The selected model entry is applied for generation.</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
