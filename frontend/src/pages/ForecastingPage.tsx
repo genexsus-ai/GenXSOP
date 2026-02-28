@@ -561,7 +561,7 @@ export function ForecastingPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Period', 'Predicted', 'Lower', 'Upper', 'Model'].map((h) => (
+                  {['Period', 'Predicted', 'Lower', 'Upper'].map((h) => (
                     <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -573,7 +573,6 @@ export function ForecastingPage() {
                     <td className="py-2.5 text-gray-700">{formatNumber(Number(p.predicted_qty ?? 0))}</td>
                     <td className="py-2.5 text-gray-600">{p.lower_bound != null ? formatNumber(Number(p.lower_bound)) : '—'}</td>
                     <td className="py-2.5 text-gray-600">{p.upper_bound != null ? formatNumber(Number(p.upper_bound)) : '—'}</td>
-                    <td className="py-2.5 text-gray-600">{p.model_type.replace(/_/g, ' ')}</td>
                   </tr>
                 ))}
               </tbody>
