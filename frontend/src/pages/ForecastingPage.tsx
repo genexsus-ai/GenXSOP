@@ -44,6 +44,8 @@ const MODEL_TYPES = [
   { value: 'prophet', label: 'Prophet' },
 ]
 
+const MODEL_TYPE_VALUES = new Set(MODEL_TYPES.map((m) => m.value))
+
 const FORECAST_STAGES = [
   { key: 'stage1', label: '1. Historical' },
   { key: 'stage2', label: '2. Backtesting' },
@@ -114,6 +116,48 @@ export function ForecastingPage() {
       throw new Error('JSON must be an object')
     }
     return parsed as Record<string, unknown>
+  }
+
+  const normalizeParameterGrid = (
+    raw: string,
+    selectedModel?: string,
+  ): Record<string, Array<Record<string, unknown>>> | undefined => {
+    const parsed = parseJsonObject(raw)
+    if (!parsed) return undefined
+
+    const entries = Object.entries(parsed)
+    if (entries.length === 0) return {}
+
+    const normalized: Record<string, Array<Record<string, unknown>>> = {}
+
+    // Canonical format: { "ewma": [ {...}, {...} ] }
+    // Also accept { "ewma": {...} } and auto-wrap into an array.
+    let canonicalShape = true
+    for (const [modelId, value] of entries) {
+      if (!MODEL_TYPE_VALUES.has(modelId)) {
+        canonicalShape = false
+        break
+      }
+      if (Array.isArray(value)) {
+        if (!value.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+          throw new Error('Each parameter set must be a JSON object')
+        }
+        normalized[modelId] = value as Array<Record<string, unknown>>
+      } else if (value && typeof value === 'object') {
+        normalized[modelId] = [value as Record<string, unknown>]
+      } else {
+        throw new Error('Each model entry must be an object or array of objects')
+      }
+    }
+
+    if (canonicalShape) return normalized
+
+    // Convenience fallback: allow a single parameter object and map it
+    // to the currently selected model.
+    if (!selectedModel || !MODEL_TYPE_VALUES.has(selectedModel)) {
+      throw new Error('Parameter grid must be a model -> [params] object')
+    }
+    return { [selectedModel]: [parsed] }
   }
 
   const load = async () => {
@@ -219,8 +263,10 @@ export function ForecastingPage() {
   const runModelComparison = async (productId: number) => {
     let parsedParameterGrid: Record<string, Array<Record<string, unknown>>> | undefined
     try {
-      const parsed = parseJsonObject(backtestParameterGridText)
-      parsedParameterGrid = parsed as Record<string, Array<Record<string, unknown>>> | undefined
+      parsedParameterGrid = normalizeParameterGrid(backtestParameterGridText, selectedBacktestModel || form.model_type)
+      if (parsedParameterGrid) {
+        setBacktestParameterGridText(JSON.stringify(parsedParameterGrid, null, 2))
+      }
     } catch {
       setComparisonError('Parameter grid must be a valid JSON object (model_id -> [param objects]).')
       setComparisonLoading(false)
@@ -249,6 +295,10 @@ export function ForecastingPage() {
       setComparisonLoading(false)
     }
   }
+
+  const formatParameterGridForDisplay = (modelType: string, params: Record<string, unknown>) => (
+    JSON.stringify({ [modelType]: [params] }, null, 2)
+  )
 
   useEffect(() => {
     if (!chartProductId) {
@@ -893,8 +943,23 @@ export function ForecastingPage() {
             rows={4}
             value={backtestParameterGridText}
             onChange={(e) => setBacktestParameterGridText(e.target.value)}
+            onBlur={() => {
+              try {
+                const normalized = normalizeParameterGrid(backtestParameterGridText, selectedBacktestModel || form.model_type)
+                if (normalized) {
+                  setBacktestParameterGridText(JSON.stringify(normalized, null, 2))
+                }
+              } catch {
+                // keep user input as-is until they fix JSON
+              }
+            }}
             className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-lg font-mono"
-            placeholder='{"ewma":[{"alpha":0.2},{"alpha":0.5}],"arima":[{"p":1,"d":1,"q":1}]}'
+            placeholder={`{
+  "ewma": [
+    { "alpha": 0.2 },
+    { "alpha": 0.5 }
+  ]
+}`}
           />
           <p className="mt-1 text-[11px] text-gray-500">Format: model_id → array of parameter objects. Best parameter set is selected per model.</p>
         </div>
@@ -997,7 +1062,9 @@ export function ForecastingPage() {
                       <td className="px-2 py-2">{m.score.toFixed(2)}</td>
                       <td className="px-2 py-2">{formatPercent(m.mape)}</td>
                       <td className="px-2 py-2">
-                        <code className="text-[11px]">{JSON.stringify(m.best_params ?? m.model_params ?? {})}</code>
+                        <pre className="text-[11px] whitespace-pre-wrap break-words text-gray-700 font-mono">
+                          {formatParameterGridForDisplay(m.model_type, (m.best_params ?? m.model_params ?? {}) as Record<string, unknown>)}
+                        </pre>
                       </td>
                       <td className="px-2 py-2">
                         <Button
