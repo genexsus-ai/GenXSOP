@@ -364,7 +364,8 @@ export interface ApproveForecastConsensusRequest {
 
 // ── Scenario ──────────────────────────────────────────────────────────────────
 
-export type ScenarioType = 'what_if' | 'best_case' | 'worst_case' | 'baseline'
+export type ScenarioType = 'what_if' | 'baseline' | 'stress_test' | 'best_case' | 'worst_case'
+export type ScenarioStatus = 'draft' | 'submitted' | 'completed' | 'approved' | 'rejected'
 
 export interface Scenario {
   id: number
@@ -377,7 +378,7 @@ export interface Scenario {
   margin_impact?: number
   inventory_impact?: number
   service_level_impact?: number
-  status: PlanStatus
+  status: ScenarioStatus
   created_by?: number
   approved_by?: number
   created_at: string

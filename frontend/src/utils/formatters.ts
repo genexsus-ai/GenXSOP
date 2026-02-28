@@ -1,37 +1,52 @@
 import { format, parseISO } from 'date-fns'
 
+function toSafeNumber(value: number | string | null | undefined): number | null {
+  if (value == null) return null
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 // ── Number formatters ─────────────────────────────────────────────────────────
 
-export function formatNumber(value: number, decimals = 0): string {
+export function formatNumber(value: number | string | null | undefined, decimals = 0): string {
+  const safe = toSafeNumber(value)
+  if (safe == null) return '—'
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(value)
+  }).format(safe)
 }
 
-export function formatCurrency(value: number, currency = 'USD'): string {
-  if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(1)}M`
+export function formatCurrency(value: number | string | null | undefined, currency = 'USD'): string {
+  const safe = toSafeNumber(value)
+  if (safe == null) return '—'
+
+  if (safe >= 1_000_000) {
+    return `$${(safe / 1_000_000).toFixed(1)}M`
   }
-  if (value >= 1_000) {
-    return `$${(value / 1_000).toFixed(1)}K`
+  if (safe >= 1_000) {
+    return `$${(safe / 1_000).toFixed(1)}K`
   }
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value)
+  }).format(safe)
 }
 
-export function formatPercent(value: number, decimals = 1): string {
-  return `${value.toFixed(decimals)}%`
+export function formatPercent(value: number | string | null | undefined, decimals = 1): string {
+  const safe = toSafeNumber(value)
+  if (safe == null) return '—'
+  return `${safe.toFixed(decimals)}%`
 }
 
-export function formatQuantity(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return formatNumber(value)
+export function formatQuantity(value: number | string | null | undefined): string {
+  const safe = toSafeNumber(value)
+  if (safe == null) return '—'
+  if (safe >= 1_000_000) return `${(safe / 1_000_000).toFixed(1)}M`
+  if (safe >= 1_000) return `${(safe / 1_000).toFixed(1)}K`
+  return formatNumber(safe)
 }
 
 // ── Date formatters ───────────────────────────────────────────────────────────

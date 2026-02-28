@@ -14,8 +14,7 @@ import { can } from '@/auth/permissions'
 
 const SCENARIO_TYPES = [
   { value: 'what_if', label: 'What-If Analysis' },
-  { value: 'best_case', label: 'Best Case' },
-  { value: 'worst_case', label: 'Worst Case' },
+  { value: 'stress_test', label: 'Stress Test' },
   { value: 'baseline', label: 'Baseline' },
 ]
 
@@ -31,8 +30,26 @@ export function ScenariosPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [form, setForm] = useState<Partial<CreateScenarioRequest>>({
     scenario_type: 'what_if',
-    parameters: {},
+    parameters: {
+      period: new Date().toISOString().slice(0, 10),
+      demand_change_pct: 0,
+      supply_capacity_pct: 0,
+      price_change_pct: 0,
+      inventory_release_pct: 0,
+    },
   })
+
+  const scenarioParams = form.parameters ?? {}
+
+  const setScenarioParam = (key: string, value: string | number) => {
+    setForm((prev) => ({
+      ...prev,
+      parameters: {
+        ...(prev.parameters ?? {}),
+        [key]: value,
+      },
+    }))
+  }
 
   const load = async () => {
     setLoading(true)
@@ -85,11 +102,26 @@ export function ScenariosPage() {
         name: form.name!,
         description: form.description,
         scenario_type: form.scenario_type ?? 'what_if',
-        parameters: form.parameters ?? {},
+        parameters: {
+          period: scenarioParams.period,
+          demand_change_pct: Number(scenarioParams.demand_change_pct ?? 0),
+          supply_capacity_pct: Number(scenarioParams.supply_capacity_pct ?? 0),
+          price_change_pct: Number(scenarioParams.price_change_pct ?? 0),
+          inventory_release_pct: Number(scenarioParams.inventory_release_pct ?? 0),
+        },
       })
       toast.success('Scenario created')
       setShowCreate(false)
-      setForm({ scenario_type: 'what_if', parameters: {} })
+      setForm({
+        scenario_type: 'what_if',
+        parameters: {
+          period: new Date().toISOString().slice(0, 10),
+          demand_change_pct: 0,
+          supply_capacity_pct: 0,
+          price_change_pct: 0,
+          inventory_release_pct: 0,
+        },
+      })
       load()
     } catch {
       // handled
@@ -98,9 +130,10 @@ export function ScenariosPage() {
 
   const typeColor: Record<string, string> = {
     what_if: 'bg-blue-50 text-blue-700',
+    stress_test: 'bg-red-50 text-red-700',
+    baseline: 'bg-gray-100 text-gray-700',
     best_case: 'bg-emerald-50 text-emerald-700',
     worst_case: 'bg-red-50 text-red-700',
-    baseline: 'bg-gray-100 text-gray-700',
   }
 
   return (
@@ -236,6 +269,53 @@ export function ScenariosPage() {
               rows={3}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               placeholder="Describe the scenario assumptions..." />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Scenario Period</label>
+            <input
+              type="date"
+              value={String(scenarioParams.period ?? '')}
+              onChange={(e) => setScenarioParam('period', e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Demand Change (%)</label>
+              <input
+                type="number"
+                value={Number(scenarioParams.demand_change_pct ?? 0)}
+                onChange={(e) => setScenarioParam('demand_change_pct', Number(e.target.value))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Supply Capacity Change (%)</label>
+              <input
+                type="number"
+                value={Number(scenarioParams.supply_capacity_pct ?? 0)}
+                onChange={(e) => setScenarioParam('supply_capacity_pct', Number(e.target.value))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Price Change (%)</label>
+              <input
+                type="number"
+                value={Number(scenarioParams.price_change_pct ?? 0)}
+                onChange={(e) => setScenarioParam('price_change_pct', Number(e.target.value))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Inventory Release (%)</label>
+              <input
+                type="number"
+                value={Number(scenarioParams.inventory_release_pct ?? 0)}
+                onChange={(e) => setScenarioParam('inventory_release_pct', Number(e.target.value))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
         </div>
       </Modal>
