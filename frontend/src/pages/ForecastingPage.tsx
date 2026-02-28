@@ -1230,10 +1230,10 @@ export function ForecastingPage() {
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Parameters (optional JSON)</label>
             <textarea
-              rows={12}
+              rows={8}
               value={generationModelParamsText}
               onChange={(e) => setGenerationModelParamsText(e.target.value)}
-              className="w-full min-h-[280px] px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              className="w-full min-h-[180px] px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               placeholder={selectedModelExampleText}
             />
             <p className="mt-1 text-[11px] text-gray-500">Format (same as Backtesting Parameter Grid): model_id → array of parameter objects. The selected model entry is applied for generation.</p>
