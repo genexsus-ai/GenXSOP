@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Play, TrendingUp, Target, Trash2 } from 'lucide-react'
+import { AlertTriangle, Brain, Eye, Play, TrendingUp, Target, Trash2 } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { demandService } from '@/services/demandService'
 import { productService } from '@/services/productService'
@@ -64,6 +64,7 @@ export function ForecastingPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined)
   const [lastGeneratedProductId, setLastGeneratedProductId] = useState<number | undefined>(undefined)
+  const [selectedForecastModelType, setSelectedForecastModelType] = useState<string | undefined>(undefined)
   const [historyRangeMonths, setHistoryRangeMonths] = useState(24)
   const [historyPlans, setHistoryPlans] = useState<DemandPlan[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -222,6 +223,13 @@ export function ForecastingPage() {
     }
   }
 
+  const handleViewForecastResult = (productId: number, modelType: string) => {
+    setSelectedProductId(productId)
+    setLastGeneratedProductId(productId)
+    setSelectedForecastModelType(modelType)
+    setActiveStage('stage4')
+  }
+
   const avgMape = accuracy.length > 0
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
@@ -270,7 +278,11 @@ export function ForecastingPage() {
   }))
 
   const forecastPoints = [...latestGeneratedForecasts, ...forecasts]
-    .filter((f) => !chartProductId || Number(f.product_id) === Number(chartProductId))
+    .filter((f) => {
+      const productMatch = !chartProductId || Number(f.product_id) === Number(chartProductId)
+      const modelMatch = !selectedForecastModelType || f.model_type === selectedForecastModelType
+      return productMatch && modelMatch
+    })
     .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
 
   const dedupedForecastPoints = Array.from(
@@ -504,6 +516,20 @@ export function ForecastingPage() {
       </Card>
       )}
 
+      {activeStage === 'stage4' && selectedForecastModelType && (
+      <Card title="Viewing Filter" subtitle="Filtered from Manage Forecast Results">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-gray-700">
+            Showing forecast curve for model:{' '}
+            <span className="font-semibold text-gray-900">{selectedForecastModelType.replace(/_/g, ' ')}</span>
+          </p>
+          <Button variant="outline" onClick={() => setSelectedForecastModelType(undefined)}>
+            Show all models
+          </Button>
+        </div>
+      </Card>
+      )}
+
       {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
@@ -683,14 +709,23 @@ export function ForecastingPage() {
                     </td>
                     <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
                     <td className="py-2.5">
-                      <button
-                        onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}
-                        className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Delete all forecast results for this product"
-                        disabled={!canGenerate}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleViewForecastResult(g.product_id, g.model_type)}
+                          className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          title="View this forecast in Forecast View"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}
+                          className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Delete all forecast results for this product"
+                          disabled={!canGenerate}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
