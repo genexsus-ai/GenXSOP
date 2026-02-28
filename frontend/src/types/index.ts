@@ -274,6 +274,7 @@ export type ForecastModelType =
   | 'seasonal_naive'
   | 'arima'
   | 'prophet'
+  | 'lstm'
 
 export interface Forecast {
   id: number

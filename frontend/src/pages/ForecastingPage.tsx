@@ -42,6 +42,7 @@ const MODEL_TYPES = [
   { value: 'seasonal_naive', label: 'Seasonal Naive' },
   { value: 'arima', label: 'ARIMA' },
   { value: 'prophet', label: 'Prophet' },
+  { value: 'lstm', label: 'LSTM (PyTorch)' },
 ]
 
 const MODEL_TYPE_VALUES = new Set(MODEL_TYPES.map((m) => m.value))
@@ -77,6 +78,10 @@ const PARAMETER_GRID_EXAMPLE = `{
   "prophet": [
     { "changepoint_prior_scale": 0.05, "seasonality_mode": "additive" },
     { "changepoint_prior_scale": 0.1, "seasonality_mode": "multiplicative" }
+  ],
+  "lstm": [
+    { "lookback_window": 12, "hidden_size": 32, "num_layers": 1, "dropout": 0.1, "epochs": 120, "learning_rate": 0.01 },
+    { "lookback_window": 18, "hidden_size": 64, "num_layers": 2, "dropout": 0.2, "epochs": 180, "learning_rate": 0.005 }
   ]
 }`
 

@@ -49,6 +49,13 @@ Use these model IDs in `models` and `parameter_grid`:
 - `prophet`
   - `changepoint_prior_scale` (float, 0.001..0.5)
   - `seasonality_mode` (`multiplicative` or `additive`)
+- `lstm` (PyTorch)
+  - `lookback_window` (int, 3..24)
+  - `hidden_size` (int, 8..256)
+  - `num_layers` (int, 1..4)
+  - `dropout` (float, 0.0..0.6)
+  - `epochs` (int, 20..400)
+  - `learning_rate` (float, 0.0001..0.1)
 
 > Note: Out-of-range values are normalized by the backend to allowed bounds.
 

@@ -339,6 +339,123 @@ class ProphetStrategy(BaseForecastStrategy):
             return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
 
 
+class LSTMStrategy(BaseForecastStrategy):
+    """PyTorch LSTM forecaster with guarded fallback behavior."""
+
+    @property
+    def model_id(self) -> str:
+        return "lstm"
+
+    @property
+    def display_name(self) -> str:
+        return "LSTM (PyTorch)"
+
+    @property
+    def min_data_months(self) -> int:
+        return 18
+
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
+        lookback_window = int(params.get("lookback_window", 12)) if str(params.get("lookback_window", "")).strip() else 12
+        lookback_window = max(3, min(24, lookback_window))
+        hidden_size = int(params.get("hidden_size", 32)) if str(params.get("hidden_size", "")).strip() else 32
+        hidden_size = max(8, min(256, hidden_size))
+        num_layers = int(params.get("num_layers", 1)) if str(params.get("num_layers", "")).strip() else 1
+        num_layers = max(1, min(4, num_layers))
+        dropout = float(params.get("dropout", 0.1))
+        dropout = max(0.0, min(0.6, dropout))
+        epochs = int(params.get("epochs", 120)) if str(params.get("epochs", "")).strip() else 120
+        epochs = max(20, min(400, epochs))
+        learning_rate = float(params.get("learning_rate", 0.01))
+        learning_rate = max(0.0001, min(0.1, learning_rate))
+
+        if len(df) < max(8, lookback_window + 1):
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
+
+        try:
+            import torch
+            import torch.nn as nn
+
+            class _LSTMRegressor(nn.Module):
+                def __init__(self, in_features: int, hidden: int, layers: int, drop: float):
+                    super().__init__()
+                    self.lstm = nn.LSTM(
+                        input_size=in_features,
+                        hidden_size=hidden,
+                        num_layers=layers,
+                        dropout=drop if layers > 1 else 0.0,
+                        batch_first=True,
+                    )
+                    self.fc = nn.Linear(hidden, 1)
+
+                def forward(self, x):
+                    out, _ = self.lstm(x)
+                    return self.fc(out[:, -1, :])
+
+            torch.manual_seed(42)
+            y = df["y"].astype(float).values
+            y_mean = float(np.mean(y))
+            y_std = float(np.std(y))
+            scale = y_std if y_std > 1e-8 else max(1.0, abs(y_mean) * 0.1)
+            y_norm = (y - y_mean) / scale
+
+            X_vals, y_targets = [], []
+            for i in range(lookback_window, len(y_norm)):
+                X_vals.append(y_norm[i - lookback_window:i])
+                y_targets.append(y_norm[i])
+
+            if not X_vals:
+                return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
+
+            x_tensor = torch.tensor(np.array(X_vals), dtype=torch.float32).unsqueeze(-1)
+            y_tensor = torch.tensor(np.array(y_targets), dtype=torch.float32).unsqueeze(-1)
+
+            model = _LSTMRegressor(1, hidden_size, num_layers, dropout)
+            criterion = nn.MSELoss()
+            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+            model.train()
+            for _ in range(epochs):
+                optimizer.zero_grad()
+                output = model(x_tensor)
+                loss = criterion(output, y_tensor)
+                loss.backward()
+                optimizer.step()
+
+            model.eval()
+            history_window = list(y_norm[-lookback_window:])
+            preds_norm: List[float] = []
+            with torch.no_grad():
+                for _ in range(horizon):
+                    seq = torch.tensor(np.array(history_window[-lookback_window:]), dtype=torch.float32).view(1, lookback_window, 1)
+                    next_norm = float(model(seq).item())
+                    preds_norm.append(next_norm)
+                    history_window.append(next_norm)
+
+                train_preds = model(x_tensor).squeeze(-1).numpy()
+
+            preds = [max(0.0, (p * scale) + y_mean) for p in preds_norm]
+            residuals = (train_preds - np.array(y_targets, dtype=float)) * scale
+            resid_std = float(np.std(residuals))
+            if resid_std <= 1e-8:
+                resid_std = float(np.std(y)) if len(y) > 1 else max(1.0, float(np.mean(y)) * 0.1)
+
+            future_periods = self._build_future_periods(df, horizon)
+            return [
+                {
+                    "period": p,
+                    "predicted_qty": round(v, 2),
+                    "lower_bound": round(max(0.0, v - 1.64 * resid_std), 2),
+                    "upper_bound": round(max(0.0, v + 1.64 * resid_std), 2),
+                    "confidence": 86.0,
+                    "mape": None,
+                }
+                for p, v in zip(future_periods, preds)
+            ]
+        except Exception:
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
+
+
 # ── Context (uses a strategy) ─────────────────────────────────────────────────
 
 class ForecastContext:

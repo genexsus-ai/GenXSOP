@@ -46,6 +46,14 @@ class ForecastService:
             "changepoint_prior_scale": {"type": "float", "min": 0.001, "max": 0.5},
             "seasonality_mode": {"type": "enum", "values": {"multiplicative", "additive"}},
         },
+        "lstm": {
+            "lookback_window": {"type": "int", "min": 3, "max": 24},
+            "hidden_size": {"type": "int", "min": 8, "max": 256},
+            "num_layers": {"type": "int", "min": 1, "max": 4},
+            "dropout": {"type": "float", "min": 0.0, "max": 0.6},
+            "epochs": {"type": "int", "min": 20, "max": 400},
+            "learning_rate": {"type": "float", "min": 0.0001, "max": 0.1},
+        },
     }
 
     def __init__(self, db: Session):

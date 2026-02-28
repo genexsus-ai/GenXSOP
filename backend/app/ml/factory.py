@@ -16,6 +16,7 @@ from app.ml.strategies import (
     SeasonalNaiveStrategy,
     ARIMAStrategy,
     ProphetStrategy,
+    LSTMStrategy,
     ForecastContext,
 )
 
@@ -37,6 +38,7 @@ class ForecastModelFactory:
         "seasonal_naive": SeasonalNaiveStrategy,
         "arima": ARIMAStrategy,
         "prophet": ProphetStrategy,
+        "lstm": LSTMStrategy,
     }
 
     @classmethod

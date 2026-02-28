@@ -44,6 +44,7 @@ class ForecastAdvisorService:
         "seasonal_naive",
         "arima",
         "prophet",
+        "lstm",
     }
 
     def __init__(self) -> None:
@@ -120,7 +121,7 @@ class ForecastAdvisorService:
         runtime = AgentRuntime(agent=agent, openai_api_key=settings.OPENAI_API_KEY)
 
         task = (
-            "Choose one model from ['moving_average','ewma','exp_smoothing','seasonal_naive','arima','prophet'] based on backtest metrics. "
+            "Choose one model from ['moving_average','ewma','exp_smoothing','seasonal_naive','arima','prophet','lstm'] based on backtest metrics. "
             "Respond ONLY valid JSON with keys: recommended_model (string), confidence (0..1), reason (string). "
             f"Default model if uncertain: {default_model}.\n"
             f"History months: {history_months}.\n"

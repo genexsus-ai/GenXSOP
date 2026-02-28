@@ -22,6 +22,7 @@ from app.ml.strategies import (
     SeasonalNaiveStrategy,
     ARIMAStrategy,
     ProphetStrategy,
+    LSTMStrategy,
     ForecastContext,
     BaseForecastStrategy,
 )
@@ -147,6 +148,18 @@ class TestARIMAStrategy:
         assert all(item["predicted_qty"] >= 0 for item in result)
 
 
+class TestLSTMStrategy:
+
+    def test_model_id(self):
+        assert LSTMStrategy().model_id == "lstm"
+
+    def test_falls_back_to_exp_smoothing_with_insufficient_data(self):
+        df = make_df(8)
+        result = LSTMStrategy().forecast(df, horizon=3)
+        assert len(result) == 3
+        assert all(item["predicted_qty"] >= 0 for item in result)
+
+
 # ── Forecast Context ──────────────────────────────────────────────────────────
 
 class TestForecastContext:
@@ -182,6 +195,10 @@ class TestForecastModelFactory:
         s = ForecastModelFactory.create("exp_smoothing")
         assert isinstance(s, ExponentialSmoothingStrategy)
 
+    def test_create_lstm(self):
+        s = ForecastModelFactory.create("lstm")
+        assert isinstance(s, LSTMStrategy)
+
     def test_create_unknown_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown forecast model"):
             ForecastModelFactory.create("nonexistent_model")
@@ -200,6 +217,7 @@ class TestForecastModelFactory:
         assert "seasonal_naive" in ids
         assert "arima" in ids
         assert "prophet" in ids
+        assert "lstm" in ids
 
     def test_list_models_has_required_keys(self):
         models = ForecastModelFactory.list_models()
