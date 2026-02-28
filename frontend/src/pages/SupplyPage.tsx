@@ -31,6 +31,10 @@ export function SupplyPage() {
   const [gapLoading, setGapLoading] = useState(false)
   const [gapProductId, setGapProductId] = useState<number | undefined>(undefined)
   const [gapPeriod, setGapPeriod] = useState<string>('')
+  const [gapActionContext, setGapActionContext] = useState<{
+    existingPlanId?: number
+    recommendedIncreaseQty: number
+  } | null>(null)
   const [form, setForm] = useState<Partial<CreateSupplyPlanRequest>>({ location: 'Main Warehouse' })
 
   const load = async () => {
@@ -107,14 +111,51 @@ export function SupplyPage() {
       return
     }
     try {
-      await supplyService.createPlan(form as CreateSupplyPlanRequest)
-      toast.success('Supply plan created')
+      if (gapActionContext?.existingPlanId) {
+        await supplyService.updatePlan(gapActionContext.existingPlanId, form)
+        toast.success('Supply plan updated to close gap')
+      } else {
+        await supplyService.createPlan(form as CreateSupplyPlanRequest)
+        toast.success('Supply plan created')
+      }
       setShowCreate(false)
+      setGapActionContext(null)
       setForm({ location: 'Main Warehouse' })
       load()
+      loadGapAnalysis()
     } catch {
       // handled
     }
+  }
+
+  const closeModal = () => {
+    setShowCreate(false)
+    setGapActionContext(null)
+  }
+
+  const handleCloseGap = (item: SupplyGapAnalysisItem) => {
+    const normalizedPeriod = item.period.slice(0, 10)
+    const existingPlan = plans.find(
+      (plan) => plan.product_id === item.product_id && plan.period.slice(0, 10) === normalizedPeriod,
+    )
+
+    const currentPlanned = Number(existingPlan?.planned_prod_qty ?? item.planned_supply_qty ?? 0)
+    const requiredIncrease = item.gap < 0 ? Math.abs(Number(item.gap)) : 0
+    const targetPlanned = currentPlanned + requiredIncrease
+
+    setForm({
+      product_id: item.product_id,
+      period: normalizedPeriod,
+      location: existingPlan?.location ?? 'Main Warehouse',
+      supplier_name: existingPlan?.supplier_name,
+      capacity_max: existingPlan?.capacity_max,
+      planned_prod_qty: Number(targetPlanned.toFixed(2)),
+    })
+    setGapActionContext({
+      existingPlanId: existingPlan?.id,
+      recommendedIncreaseQty: Number(requiredIncrease.toFixed(2)),
+    })
+    setShowCreate(true)
   }
 
   return (
@@ -125,7 +166,13 @@ export function SupplyPage() {
           <p className="text-sm text-gray-500 mt-0.5">{total} plans total</p>
         </div>
         {canWrite && (
-          <Button icon={<Plus />} onClick={() => setShowCreate(true)}>
+          <Button
+            icon={<Plus />}
+            onClick={() => {
+              setGapActionContext(null)
+              setShowCreate(true)
+            }}
+          >
             New Plan
           </Button>
         )}
@@ -288,6 +335,7 @@ export function SupplyPage() {
                     'Gap',
                     'Gap %',
                     'Status',
+                    'Action',
                   ].map((h) => (
                     <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">
                       {h}
@@ -315,6 +363,19 @@ export function SupplyPage() {
                       {item.gap_pct.toFixed(1)}%
                     </td>
                     <td className="px-4 py-2.5"><StatusBadge status={item.status} size="sm" /></td>
+                    <td className="px-4 py-2.5">
+                      {canWrite ? (
+                        <Button variant="outline" size="sm" onClick={() => handleCloseGap(item)}>
+                          {item.gap < 0
+                            ? (plans.some((plan) => plan.product_id === item.product_id && plan.period.slice(0, 10) === item.period.slice(0, 10))
+                              ? 'Adjust Plan'
+                              : 'Close Gap')
+                            : 'Adjust Plan'}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-gray-400">No edit permission</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -323,15 +384,25 @@ export function SupplyPage() {
         )}
       </Card>
 
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Create Supply Plan"
+      <Modal
+        isOpen={showCreate}
+        onClose={closeModal}
+        title={gapActionContext ? 'Close Gap — Supply Plan Adjustment' : 'Create Supply Plan'}
         footer={
           <>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canWrite}>Create Plan</Button>
+            <Button variant="outline" onClick={closeModal}>Cancel</Button>
+            <Button onClick={handleCreate} disabled={!canWrite}>
+              {gapActionContext?.existingPlanId ? 'Update Plan' : 'Create Plan'}
+            </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {gapActionContext && (
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              Recommended planned production increase: <span className="font-semibold">{formatNumber(gapActionContext.recommendedIncreaseQty)}</span>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Product ID *</label>
             <input type="number" value={form.product_id ?? ''}
