@@ -269,6 +269,7 @@ def list_forecast_results(
             "confidence": float(f.confidence) if f.confidence else None,
             "mape": float(f.mape) if f.mape else None,
         } | {
+            "run_audit_id": _parse_features(f.features_used).get("run_audit_id"),
             "selection_reason": _parse_features(f.features_used).get("selection_reason"),
             "advisor_confidence": _parse_features(f.features_used).get("advisor_confidence"),
             "advisor_enabled": _parse_features(f.features_used).get("advisor_enabled"),
@@ -295,10 +296,13 @@ def delete_forecast_results_by_product(
     service: ForecastService = Depends(get_forecast_service),
     _: User = Depends(require_roles(PLANNER_ROLES)),
 ):
-    deleted = service.delete_forecasts_by_product(product_id)
+    deleted_counts = service.delete_forecasts_by_product(product_id)
     return {
         "product_id": product_id,
-        "deleted": deleted,
+        # Backward-compatible field used by existing UI.
+        "deleted": deleted_counts["forecasts_deleted"],
+        "forecasts_deleted": deleted_counts["forecasts_deleted"],
+        "consensus_deleted": deleted_counts["consensus_deleted"],
     }
 
 
@@ -356,6 +360,7 @@ def promote_forecast_results(
 @router.get("/consensus", response_model=List[ForecastConsensusResponse])
 def list_consensus_records(
     product_id: Optional[int] = None,
+    forecast_run_audit_id: Optional[int] = None,
     status: Optional[str] = None,
     period_from: Optional[date] = None,
     period_to: Optional[date] = None,
@@ -364,6 +369,7 @@ def list_consensus_records(
 ):
     return service.list_consensus(
         product_id=product_id,
+        forecast_run_audit_id=forecast_run_audit_id,
         status=status,
         period_from=period_from,
         period_to=period_to,

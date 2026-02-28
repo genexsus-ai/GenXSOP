@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 
 class ForecastConsensusBase(BaseModel):
+    forecast_run_audit_id: int
     product_id: int
     period: date
     baseline_qty: Decimal
@@ -36,6 +37,7 @@ class ForecastConsensusApproveRequest(BaseModel):
 
 class ForecastConsensusResponse(BaseModel):
     id: int
+    forecast_run_audit_id: Optional[int] = None
     product_id: int
     period: date
     baseline_qty: Decimal

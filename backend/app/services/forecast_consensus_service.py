@@ -14,6 +14,7 @@ from app.core.exceptions import (
     to_http_exception,
 )
 from app.models.demand_plan import DemandPlan
+from app.models.forecast_run_audit import ForecastRunAudit
 from app.models.forecast_consensus import ForecastConsensus
 from app.repositories.demand_repository import DemandPlanRepository
 from app.repositories.forecast_consensus_repository import ForecastConsensusRepository
@@ -59,12 +60,14 @@ class ForecastConsensusService:
     def list_consensus(
         self,
         product_id: Optional[int] = None,
+        forecast_run_audit_id: Optional[int] = None,
         status: Optional[str] = None,
         period_from: Optional[date] = None,
         period_to: Optional[date] = None,
     ) -> List[ForecastConsensus]:
         return self._repo.list_filtered(
             product_id=product_id,
+            forecast_run_audit_id=forecast_run_audit_id,
             status=status,
             period_from=period_from,
             period_to=period_to,
@@ -77,6 +80,18 @@ class ForecastConsensusService:
         return consensus
 
     def create_consensus(self, data: ForecastConsensusCreate, user_id: int) -> ForecastConsensus:
+        run_audit = self._db.query(ForecastRunAudit).filter(
+            ForecastRunAudit.id == data.forecast_run_audit_id,
+        ).first()
+        if not run_audit:
+            raise to_http_exception(EntityNotFoundException("ForecastRunAudit", data.forecast_run_audit_id))
+        if int(run_audit.product_id) != int(data.product_id):
+            raise to_http_exception(
+                BusinessRuleViolationException(
+                    "Consensus product_id must match forecast run product_id."
+                )
+            )
+
         baseline = self._d(data.baseline_qty)
         sales = self._d(data.sales_override_qty)
         marketing = self._d(data.marketing_uplift_qty)
@@ -84,10 +99,14 @@ class ForecastConsensusService:
         cap = self._d(data.constraint_cap_qty) if data.constraint_cap_qty is not None else None
         pre, final = self._compute_final(baseline, sales, marketing, finance, cap)
 
-        latest = self._repo.get_latest(data.product_id, data.period)
+        latest = self._repo.get_latest(
+            period=data.period,
+            forecast_run_audit_id=data.forecast_run_audit_id,
+        )
         version = (latest.version + 1) if latest else 1
 
         row = ForecastConsensus(
+            forecast_run_audit_id=data.forecast_run_audit_id,
             product_id=data.product_id,
             period=data.period,
             baseline_qty=baseline,

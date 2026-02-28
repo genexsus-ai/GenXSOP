@@ -19,10 +19,10 @@ class ForecastConsensus(Base):
     __tablename__ = "forecast_consensus"
     __table_args__ = (
         UniqueConstraint(
-            "product_id",
+            "forecast_run_audit_id",
             "period",
             "version",
-            name="uq_forecast_consensus_product_period_version",
+            name="uq_forecast_consensus_run_period_version",
         ),
         CheckConstraint("baseline_qty >= 0", name="ck_forecast_consensus_baseline_non_negative"),
         CheckConstraint(
@@ -36,11 +36,18 @@ class ForecastConsensus(Base):
             name="ck_forecast_consensus_status",
         ),
         CheckConstraint("version >= 1", name="ck_forecast_consensus_version_min_1"),
+        Index("ix_forecast_consensus_run_period", "forecast_run_audit_id", "period"),
         Index("ix_forecast_consensus_product_period", "product_id", "period"),
         Index("ix_forecast_consensus_status_period", "status", "period"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    forecast_run_audit_id = Column(
+        Integer,
+        ForeignKey("forecast_run_audits.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False, index=True)
     period = Column(Date, nullable=False, index=True)
 

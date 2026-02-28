@@ -66,6 +66,7 @@ export function ForecastingPage() {
   const [consensusRecords, setConsensusRecords] = useState<ForecastConsensus[]>([])
   const [showConsensusModal, setShowConsensusModal] = useState(false)
   const [savingConsensus, setSavingConsensus] = useState(false)
+  const [consensusModalMode, setConsensusModalMode] = useState<'fresh' | 'edit'>('fresh')
   const [consensusForm, setConsensusForm] = useState({
     period: '',
     baseline_qty: 0,
@@ -80,6 +81,8 @@ export function ForecastingPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined)
   const [lastGeneratedProductId, setLastGeneratedProductId] = useState<number | undefined>(undefined)
+  const [lastGeneratedRunAuditId, setLastGeneratedRunAuditId] = useState<number | undefined>(undefined)
+  const [selectedForecastRunAuditId, setSelectedForecastRunAuditId] = useState<number | undefined>(undefined)
   const [selectedForecastModelType, setSelectedForecastModelType] = useState<string | undefined>(undefined)
   const [historyRangeMonths, setHistoryRangeMonths] = useState(24)
   const [historyPlans, setHistoryPlans] = useState<DemandPlan[]>([])
@@ -127,6 +130,19 @@ export function ForecastingPage() {
 
   const chartProductId = lastGeneratedProductId ?? selectedProductId ?? form.product_id ?? forecasts[0]?.product_id
 
+  const fallbackRunAuditId = [...forecasts]
+    .filter((f) => {
+      const productMatch = !chartProductId || Number(f.product_id) === Number(chartProductId)
+      const modelMatch = !selectedForecastModelType || f.model_type === selectedForecastModelType
+      return productMatch && modelMatch && f.run_audit_id != null
+    })
+    .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+    .map((f) => f.run_audit_id)
+    .filter((id): id is number => typeof id === 'number')
+    .slice(-1)[0]
+
+  const activeRunAuditId = lastGeneratedRunAuditId ?? selectedForecastRunAuditId ?? fallbackRunAuditId
+
   useEffect(() => {
     setForm((prev) => ({ ...prev, product_id: selectedProductId }))
   }, [selectedProductId])
@@ -170,7 +186,37 @@ export function ForecastingPage() {
     try {
       const generated = await forecastService.generateForecast(form as GenerateForecastRequest)
       setLatestGeneratedForecasts(generated.forecasts ?? [])
-      toast.success('Forecast generated successfully')
+      const runAuditId = generated.diagnostics?.run_audit_id
+      setLastGeneratedRunAuditId(runAuditId)
+      setSelectedForecastRunAuditId(runAuditId)
+
+      const generatedForProduct = (generated.forecasts ?? [])
+        .filter((f) => Number(f.product_id) === Number(generatedProductId))
+        .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+
+      const firstForecastPoint = generatedForProduct.length > 0 ? generatedForProduct[0] : undefined
+      if (firstForecastPoint?.period && runAuditId != null) {
+        try {
+          await forecastService.createConsensus({
+            forecast_run_audit_id: runAuditId,
+            product_id: generatedProductId,
+            period: firstForecastPoint.period,
+            baseline_qty: Number(firstForecastPoint.predicted_qty ?? 0),
+            sales_override_qty: 0,
+            marketing_uplift_qty: 0,
+            finance_adjustment_qty: 0,
+            constraint_cap_qty: null,
+            status: 'draft',
+            notes: 'Auto-created from latest forecast generation',
+          })
+          toast.success('Forecast generated and new consensus draft created')
+        } catch {
+          toast.success('Forecast generated successfully')
+        }
+      } else {
+        toast.success('Forecast generated successfully')
+      }
+
       setShowGenerate(false)
       setSelectedProductId(generatedProductId)
       setLastGeneratedProductId(generatedProductId)
@@ -234,7 +280,9 @@ export function ForecastingPage() {
     if (!confirm(`Delete all forecast results for ${productName}? This action cannot be undone.`)) return
     try {
       const res = await forecastService.deleteResultsByProduct(productId)
-      toast.success(`Deleted ${res.deleted} forecast result(s) for ${productName}`)
+      toast.success(
+        `Deleted ${res.forecasts_deleted} forecast result(s) and ${res.consensus_deleted} consensus record(s) for ${productName}`,
+      )
       await load()
     } catch {
       // handled
@@ -242,8 +290,20 @@ export function ForecastingPage() {
   }
 
   const handleViewForecastResult = (productId: number, modelType: string) => {
+    const viewRunAuditId = [...forecasts]
+      .filter((f) => (
+        Number(f.product_id) === Number(productId)
+        && f.model_type === modelType
+        && f.run_audit_id != null
+      ))
+      .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+      .map((f) => f.run_audit_id)
+      .filter((id): id is number => typeof id === 'number')
+      .slice(-1)[0]
+
     setSelectedProductId(productId)
     setLastGeneratedProductId(productId)
+    setSelectedForecastRunAuditId(viewRunAuditId)
     setSelectedForecastModelType(modelType)
     setActiveStage('stage4')
   }
@@ -262,13 +322,66 @@ export function ForecastingPage() {
     }
   }
 
-  const openConsensusModal = () => {
+  const getSeedBaselineFromForecast = (productId: number, period: string): number => {
+    const monthKey = period.slice(0, 7)
+    const pointsForProduct = [...latestGeneratedForecasts, ...forecasts]
+      .filter((f) => Number(f.product_id) === Number(productId))
+      .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+
+    const exactMonthPoint = pointsForProduct.find((f) => f.period.slice(0, 7) === monthKey)
+    if (exactMonthPoint?.predicted_qty != null) return Number(exactMonthPoint.predicted_qty)
+
+    // Fallback to the nearest available future forecast point for the same product.
+    const nextPoint = pointsForProduct.find((f) => new Date(f.period).getTime() >= new Date(period).getTime())
+    if (nextPoint?.predicted_qty != null) return Number(nextPoint.predicted_qty)
+
+    // Last fallback: latest available predicted quantity.
+    const latestPoint = pointsForProduct.length > 0 ? pointsForProduct[pointsForProduct.length - 1] : null
+    if (latestPoint?.predicted_qty != null) return Number(latestPoint.predicted_qty)
+
+    return 0
+  }
+
+  const openConsensusModal = (mode: 'fresh' | 'edit' = 'fresh') => {
     const targetProductId = chartProductId ?? selectedProductId
     if (!targetProductId) {
       toast.error('Select a product first')
       return
     }
-    const sortedExisting = [...consensusRecords]
+
+    setConsensusModalMode(mode)
+
+    const hasFreshGeneratedForecast =
+      mode === 'fresh'
+      && Number(targetProductId) === Number(lastGeneratedProductId)
+      && latestGeneratedForecasts.length > 0
+
+    if (hasFreshGeneratedForecast) {
+      const generatedForProduct = [...latestGeneratedForecasts]
+        .filter((f) => Number(f.product_id) === Number(targetProductId))
+        .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
+
+      const basePoint = generatedForProduct.length > 0 ? generatedForProduct[0] : undefined
+      const period = basePoint?.period ?? new Date().toISOString().slice(0, 10)
+      const baseline = basePoint?.predicted_qty != null
+        ? Number(basePoint.predicted_qty)
+        : getSeedBaselineFromForecast(targetProductId, period)
+
+      setConsensusForm({
+        period,
+        baseline_qty: baseline,
+        sales_override_qty: 0,
+        marketing_uplift_qty: 0,
+        finance_adjustment_qty: 0,
+        constraint_cap_qty: '',
+        status: 'draft',
+        notes: '',
+      })
+      setShowConsensusModal(true)
+      return
+    }
+
+    const sortedExisting = [...selectedConsensus]
       .filter((c) => Number(c.product_id) === Number(targetProductId))
       .sort((a, b) => {
         const byPeriod = new Date(a.period).getTime() - new Date(b.period).getTime()
@@ -276,10 +389,12 @@ export function ForecastingPage() {
         return a.version - b.version
       })
     const existing = sortedExisting.length > 0 ? sortedExisting[sortedExisting.length - 1] : undefined
+    const defaultPeriod = existing?.period ?? new Date().toISOString().slice(0, 10)
+    const seededBaseline = existing?.baseline_qty ?? getSeedBaselineFromForecast(targetProductId, defaultPeriod)
 
     setConsensusForm({
-      period: existing?.period ?? new Date().toISOString().slice(0, 10),
-      baseline_qty: existing?.baseline_qty ?? 0,
+      period: defaultPeriod,
+      baseline_qty: seededBaseline,
       sales_override_qty: existing?.sales_override_qty ?? 0,
       marketing_uplift_qty: existing?.marketing_uplift_qty ?? 0,
       finance_adjustment_qty: existing?.finance_adjustment_qty ?? 0,
@@ -300,9 +415,17 @@ export function ForecastingPage() {
       toast.error('Period is required')
       return
     }
+    if (!activeRunAuditId) {
+      toast.error('No forecast run selected for consensus')
+      return
+    }
 
     const samePeriodRows = [...consensusRecords]
-      .filter((c) => Number(c.product_id) === Number(targetProductId) && c.period === consensusForm.period)
+      .filter((c) => (
+        Number(c.product_id) === Number(targetProductId)
+        && Number(c.forecast_run_audit_id) === Number(activeRunAuditId)
+        && c.period === consensusForm.period
+      ))
       .sort((a, b) => b.version - a.version)
     const samePeriodLatest = samePeriodRows.length > 0 ? samePeriodRows[0] : undefined
 
@@ -318,11 +441,12 @@ export function ForecastingPage() {
         notes: consensusForm.notes || undefined,
       }
 
-      if (samePeriodLatest) {
+      if (consensusModalMode === 'edit' && samePeriodLatest) {
         await forecastService.updateConsensus(samePeriodLatest.id, payload)
         toast.success('Consensus updated')
       } else {
         await forecastService.createConsensus({
+          forecast_run_audit_id: activeRunAuditId,
           product_id: targetProductId,
           period: consensusForm.period,
           ...payload,
@@ -371,7 +495,12 @@ export function ForecastingPage() {
     : Math.max(0, Math.min(draftPreConsensus, draftCap))
 
   const selectedConsensus = [...consensusRecords]
-    .filter((c) => !chartProductId || Number(c.product_id) === Number(chartProductId))
+    .filter((c) => {
+      const productMatch = !chartProductId || Number(c.product_id) === Number(chartProductId)
+      if (!productMatch) return false
+      if (!activeRunAuditId) return true
+      return Number(c.forecast_run_audit_id) === Number(activeRunAuditId)
+    })
     .sort((a, b) => {
       const byPeriod = new Date(a.period).getTime() - new Date(b.period).getTime()
       if (byPeriod !== 0) return byPeriod
@@ -428,6 +557,32 @@ export function ForecastingPage() {
     })
     .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
 
+  const latestConsensusPrediction = latestConsensus
+    ? [...forecastPoints]
+      .reverse()
+      .find((p) => p.period.slice(0, 7) === latestConsensus.period.slice(0, 7) && p.predicted_qty != null)
+    : undefined
+
+  const latestConsensusVariance = (latestConsensus && latestConsensusPrediction?.predicted_qty != null)
+    ? Number(latestConsensus.final_consensus_qty) - Number(latestConsensusPrediction.predicted_qty)
+    : null
+
+  const latestConsensusVariancePct = (latestConsensusVariance != null
+    && latestConsensusPrediction?.predicted_qty != null
+    && Number(latestConsensusPrediction.predicted_qty) !== 0)
+    ? (latestConsensusVariance / Number(latestConsensusPrediction.predicted_qty)) * 100
+    : null
+
+  const latestConsensusDriverNet = latestConsensus
+    ? Number(latestConsensus.sales_override_qty)
+      + Number(latestConsensus.marketing_uplift_qty)
+      + Number(latestConsensus.finance_adjustment_qty)
+    : null
+
+  const latestConsensusCapImpact = latestConsensus
+    ? Number(latestConsensus.final_consensus_qty) - Number(latestConsensus.pre_consensus_qty)
+    : null
+
   const dedupedForecastPoints = Array.from(
     forecastPoints.reduce((acc, point) => {
       const monthKey = point.period.slice(0, 7)
@@ -448,6 +603,7 @@ export function ForecastingPage() {
     prediction_qty: number | null
     lower_bound: number | null
     upper_bound: number | null
+    consensus_qty: number | null
   }>()
 
   historicalSeries.forEach((h) => {
@@ -459,6 +615,7 @@ export function ForecastingPage() {
       prediction_qty: current?.prediction_qty ?? null,
       lower_bound: current?.lower_bound ?? null,
       upper_bound: current?.upper_bound ?? null,
+      consensus_qty: current?.consensus_qty ?? null,
     })
   })
 
@@ -471,6 +628,31 @@ export function ForecastingPage() {
       prediction_qty: f.predicted_qty != null ? Number(f.predicted_qty) : null,
       lower_bound: f.lower_bound != null ? Number(f.lower_bound) : null,
       upper_bound: f.upper_bound != null ? Number(f.upper_bound) : null,
+      consensus_qty: current?.consensus_qty ?? null,
+    })
+  })
+
+  const consensusSeries = Array.from(
+    selectedConsensus.reduce((acc, c) => {
+      const monthKey = c.period.slice(0, 7)
+      // Keep latest version for each period.
+      if (!acc.has(monthKey) || c.version >= (acc.get(monthKey)?.version ?? 0)) {
+        acc.set(monthKey, c)
+      }
+      return acc
+    }, new Map<string, ForecastConsensus>()),
+  ).map(([, v]) => v)
+
+  consensusSeries.forEach((c) => {
+    const key = c.period.slice(0, 7)
+    const current = chartDataMap.get(key)
+    chartDataMap.set(key, {
+      periodRaw: current?.periodRaw ?? c.period,
+      historical_qty: current?.historical_qty ?? null,
+      prediction_qty: current?.prediction_qty ?? null,
+      lower_bound: current?.lower_bound ?? null,
+      upper_bound: current?.upper_bound ?? null,
+      consensus_qty: c.final_consensus_qty != null ? Number(c.final_consensus_qty) : null,
     })
   })
 
@@ -482,6 +664,7 @@ export function ForecastingPage() {
       prediction_qty: row.prediction_qty,
       lower_bound: row.lower_bound,
       upper_bound: row.upper_bound,
+      consensus_qty: row.consensus_qty,
     }))
 
   const accuracyChartData = [...accuracy]
@@ -649,7 +832,7 @@ export function ForecastingPage() {
         {!latestConsensus ? (
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-gray-500">No consensus records available for selected product.</p>
-            <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={openConsensusModal}>
+            <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={() => openConsensusModal('fresh')}>
               Create
             </Button>
           </div>
@@ -673,9 +856,38 @@ export function ForecastingPage() {
                 <p className="text-sm text-gray-900 capitalize">{latestConsensus.status}</p>
               </div>
             </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-xs font-medium text-amber-900 mb-1">Variance Explanation (Latest Period)</p>
+              {latestConsensusPrediction?.predicted_qty == null ? (
+                <p className="text-xs text-amber-800">
+                  No matching forecast prediction found for this consensus period.
+                </p>
+              ) : (
+                <div className="space-y-1 text-xs text-amber-900">
+                  <p>
+                    Consensus ({formatNumber(Number(latestConsensus.final_consensus_qty))})
+                    {' '}− Prediction ({formatNumber(Number(latestConsensusPrediction.predicted_qty))})
+                    {' '}= <span className="font-semibold">{latestConsensusVariance != null ? formatNumber(latestConsensusVariance) : '—'}</span>
+                    {latestConsensusVariancePct != null ? ` (${formatPercent(latestConsensusVariancePct)})` : ''}
+                  </p>
+                  <p>
+                    Driver breakdown:
+                    {' '}Baseline {formatNumber(Number(latestConsensus.baseline_qty))}
+                    {' '}+ Sales {formatNumber(Number(latestConsensus.sales_override_qty))}
+                    {' '}+ Marketing {formatNumber(Number(latestConsensus.marketing_uplift_qty))}
+                    {' '}+ Finance {formatNumber(Number(latestConsensus.finance_adjustment_qty))}
+                    {' '}= Pre {formatNumber(Number(latestConsensus.pre_consensus_qty))}
+                  </p>
+                  <p>
+                    Net overrides vs baseline: <span className="font-semibold">{latestConsensusDriverNet != null ? formatNumber(latestConsensusDriverNet) : '—'}</span>
+                    {' '}· Cap impact: <span className="font-semibold">{latestConsensusCapImpact != null ? formatNumber(latestConsensusCapImpact) : '—'}</span>
+                  </p>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={openConsensusModal}>
-                Edit
+              <Button size="sm" variant="outline" icon={<Edit3 className="h-4 w-4" />} onClick={() => openConsensusModal('fresh')}>
+                New Version
               </Button>
               <Button
                 size="sm"
@@ -769,7 +981,7 @@ export function ForecastingPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
           title="Step 4 · Forecast Curve"
-          subtitle={`Historical + prediction with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
+          subtitle={`Historical + prediction + consensus with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
         >
           {bestModelDisplay && (
             <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -792,6 +1004,7 @@ export function ForecastingPage() {
                   <Line type="monotone" dataKey="lower_bound" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Confidence Lower" connectNulls={false} />
                   <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Historical" connectNulls={false} />
                   <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Prediction" connectNulls={false} />
+                  <Line type="monotone" dataKey="consensus_qty" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Consensus" connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

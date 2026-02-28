@@ -62,6 +62,7 @@ class TestForecastingIntegration:
         assert isinstance(diagnostics, dict)
         for key in [
             "selected_model",
+            "run_audit_id",
             "selection_reason",
             "advisor_confidence",
             "advisor_enabled",
@@ -162,11 +163,23 @@ class TestForecastingIntegration:
         self,
         client: TestClient,
         admin_headers: dict,
+        db: Session,
         product,
     ):
+        _seed_actual_history(db, product.id, months=12)
+        gen = client.post(
+            "/api/v1/forecasting/generate",
+            params={"product_id": product.id, "horizon": 3},
+            headers=admin_headers,
+        )
+        assert gen.status_code == 200
+        run_audit_id = gen.json().get("diagnostics", {}).get("run_audit_id")
+        assert run_audit_id is not None
+
         created = client.post(
             "/api/v1/forecasting/consensus",
             json={
+                "forecast_run_audit_id": run_audit_id,
                 "product_id": product.id,
                 "period": "2026-07-01",
                 "baseline_qty": "1000.00",
@@ -180,6 +193,7 @@ class TestForecastingIntegration:
         )
         assert created.status_code == 201
         row = created.json()
+        assert row["forecast_run_audit_id"] == run_audit_id
         assert row["product_id"] == product.id
         assert row["pre_consensus_qty"] == "1130.00"
         assert row["final_consensus_qty"] == "1080.00"
@@ -199,7 +213,7 @@ class TestForecastingIntegration:
 
         listed = client.get(
             "/api/v1/forecasting/consensus",
-            params={"product_id": product.id},
+            params={"product_id": product.id, "forecast_run_audit_id": run_audit_id},
             headers=admin_headers,
         )
         assert listed.status_code == 200
@@ -214,9 +228,20 @@ class TestForecastingIntegration:
         db: Session,
         product,
     ):
+        _seed_actual_history(db, product.id, months=12)
+        gen = client.post(
+            "/api/v1/forecasting/generate",
+            params={"product_id": product.id, "horizon": 3},
+            headers=admin_headers,
+        )
+        assert gen.status_code == 200
+        run_audit_id = gen.json().get("diagnostics", {}).get("run_audit_id")
+        assert run_audit_id is not None
+
         create_resp = client.post(
             "/api/v1/forecasting/consensus",
             json={
+                "forecast_run_audit_id": run_audit_id,
                 "product_id": product.id,
                 "period": "2026-08-01",
                 "baseline_qty": "500.00",

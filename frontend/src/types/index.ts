@@ -207,6 +207,7 @@ export interface Forecast {
   product_id: number
   product?: Product
   model_type: ForecastModelType
+  run_audit_id?: number
   period: string
   predicted_qty: number
   lower_bound?: number
@@ -246,6 +247,7 @@ export interface ForecastAccuracy {
 
 export interface ForecastDiagnostics {
   selected_model?: string
+  run_audit_id?: number
   selection_reason?: string
   advisor_confidence?: number
   advisor_enabled?: boolean
@@ -297,6 +299,7 @@ export type ForecastConsensusStatus = 'draft' | 'proposed' | 'approved' | 'froze
 
 export interface ForecastConsensus {
   id: number
+  forecast_run_audit_id?: number | null
   product_id: number
   period: string
   baseline_qty: number
@@ -317,6 +320,7 @@ export interface ForecastConsensus {
 }
 
 export interface CreateForecastConsensusRequest {
+  forecast_run_audit_id: number
   product_id: number
   period: string
   baseline_qty: number

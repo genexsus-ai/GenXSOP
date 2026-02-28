@@ -132,8 +132,18 @@ export const forecastService = {
     await api.delete(`/forecasting/results/${id}`)
   },
 
-  async deleteResultsByProduct(productId: number): Promise<{ product_id: number; deleted: number }> {
-    const res = await api.delete<{ product_id: number; deleted: number }>(`/forecasting/results/by-product/${productId}`)
+  async deleteResultsByProduct(productId: number): Promise<{
+    product_id: number
+    deleted: number
+    forecasts_deleted: number
+    consensus_deleted: number
+  }> {
+    const res = await api.delete<{
+      product_id: number
+      deleted: number
+      forecasts_deleted: number
+      consensus_deleted: number
+    }>(`/forecasting/results/by-product/${productId}`)
     return res.data
   },
 
@@ -186,6 +196,7 @@ export const forecastService = {
 
   async getConsensus(params?: {
     product_id?: number
+    forecast_run_audit_id?: number
     status?: 'draft' | 'proposed' | 'approved' | 'frozen'
     period_from?: string
     period_to?: string

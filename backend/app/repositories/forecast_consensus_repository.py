@@ -16,6 +16,7 @@ class ForecastConsensusRepository(BaseRepository[ForecastConsensus]):
     def list_filtered(
         self,
         product_id: Optional[int] = None,
+        forecast_run_audit_id: Optional[int] = None,
         status: Optional[str] = None,
         period_from: Optional[date] = None,
         period_to: Optional[date] = None,
@@ -23,6 +24,8 @@ class ForecastConsensusRepository(BaseRepository[ForecastConsensus]):
         q = self.db.query(ForecastConsensus)
         if product_id:
             q = q.filter(ForecastConsensus.product_id == product_id)
+        if forecast_run_audit_id:
+            q = q.filter(ForecastConsensus.forecast_run_audit_id == forecast_run_audit_id)
         if status:
             q = q.filter(ForecastConsensus.status == status)
         if period_from:
@@ -31,13 +34,24 @@ class ForecastConsensusRepository(BaseRepository[ForecastConsensus]):
             q = q.filter(ForecastConsensus.period <= period_to)
         return q.order_by(ForecastConsensus.period.asc(), ForecastConsensus.version.desc()).all()
 
-    def get_latest(self, product_id: int, period: date) -> Optional[ForecastConsensus]:
-        return (
-            self.db.query(ForecastConsensus)
-            .filter(
-                ForecastConsensus.product_id == product_id,
-                ForecastConsensus.period == period,
-            )
-            .order_by(ForecastConsensus.version.desc())
-            .first()
-        )
+    def get_latest(
+        self,
+        *,
+        period: date,
+        product_id: Optional[int] = None,
+        forecast_run_audit_id: Optional[int] = None,
+    ) -> Optional[ForecastConsensus]:
+        q = self.db.query(ForecastConsensus).filter(ForecastConsensus.period == period)
+        if forecast_run_audit_id is not None:
+            q = q.filter(ForecastConsensus.forecast_run_audit_id == forecast_run_audit_id)
+        elif product_id is not None:
+            q = q.filter(ForecastConsensus.product_id == product_id)
+        return q.order_by(ForecastConsensus.version.desc()).first()
+
+    def delete_by_product(self, product_id: int, commit: bool = True) -> int:
+        deleted = self.db.query(ForecastConsensus).filter(
+            ForecastConsensus.product_id == product_id,
+        ).delete(synchronize_session=False)
+        if commit:
+            self.db.commit()
+        return int(deleted or 0)

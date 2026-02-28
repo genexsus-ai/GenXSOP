@@ -11,6 +11,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.repositories.forecast_repository import ForecastRepository
+from app.repositories.forecast_consensus_repository import ForecastConsensusRepository
 from app.repositories.demand_repository import DemandPlanRepository
 from app.models.forecast import Forecast
 from app.models.demand_plan import DemandPlan
@@ -27,6 +28,7 @@ class ForecastService:
     def __init__(self, db: Session):
         self._db = db
         self._repo = ForecastRepository(db)
+        self._consensus_repo = ForecastConsensusRepository(db)
         self._demand_repo = DemandPlanRepository(db)
         self._bus = get_event_bus()
         self._advisor = ForecastAdvisorService()
@@ -55,8 +57,18 @@ class ForecastService:
             raise to_http_exception(EntityNotFoundException("Forecast", forecast_id))
         self._repo.delete(forecast)
 
-    def delete_forecasts_by_product(self, product_id: int) -> int:
-        return self._repo.delete_by_product(product_id)
+    def delete_forecasts_by_product(self, product_id: int) -> Dict[str, int]:
+        """
+        Delete forecast outputs and dependent consensus rows for the same product.
+        Kept transactional to avoid partial deletion state.
+        """
+        forecasts_deleted = self._repo.delete_by_product(product_id, commit=False)
+        consensus_deleted = self._consensus_repo.delete_by_product(product_id, commit=False)
+        self._db.commit()
+        return {
+            "forecasts_deleted": forecasts_deleted,
+            "consensus_deleted": consensus_deleted,
+        }
 
     def generate_forecast(
         self,
@@ -89,6 +101,25 @@ class ForecastService:
         context = ForecastModelFactory.create_context(advisor.recommended_model)
         history_df = advisor_payload["history_df"]
 
+        run_audit = ForecastRunAudit(
+            product_id=product_id,
+            user_id=user_id,
+            requested_model=model_type,
+            selected_model=context.strategy.model_id,
+            horizon=horizon,
+            advisor_enabled=advisor.advisor_enabled,
+            fallback_used=advisor.fallback_used,
+            advisor_confidence=advisor.confidence,
+            selection_reason=advisor.reason,
+            history_months=advisor_payload["history_months"],
+            records_created=0,
+            warnings_json=json.dumps(advisor.warnings),
+            candidate_metrics_json=json.dumps(advisor_payload["candidate_metrics"]),
+            data_quality_flags_json=json.dumps(advisor_payload["data_quality_flags"]),
+        )
+        self._db.add(run_audit)
+        self._db.flush()
+
         predictions = context.execute(history_df, horizon)
         created = []
         for pred in predictions:
@@ -107,6 +138,7 @@ class ForecastService:
                 mape=pred.get("mape"),
                 model_version="genxai-advisor-v1",
                 features_used=json.dumps({
+                    "run_audit_id": run_audit.id,
                     "selection_reason": advisor.reason,
                     "advisor_confidence": advisor.confidence,
                     "advisor_enabled": advisor.advisor_enabled,
@@ -126,24 +158,10 @@ class ForecastService:
             "history_months": advisor_payload["history_months"],
             "candidate_metrics": advisor_payload["candidate_metrics"],
             "data_quality_flags": advisor_payload["data_quality_flags"],
+            "run_audit_id": run_audit.id,
         }
 
-        self._db.add(ForecastRunAudit(
-            product_id=product_id,
-            user_id=user_id,
-            requested_model=model_type,
-            selected_model=context.strategy.model_id,
-            horizon=horizon,
-            advisor_enabled=advisor.advisor_enabled,
-            fallback_used=advisor.fallback_used,
-            advisor_confidence=advisor.confidence,
-            selection_reason=advisor.reason,
-            history_months=advisor_payload["history_months"],
-            records_created=len(created),
-            warnings_json=json.dumps(advisor.warnings),
-            candidate_metrics_json=json.dumps(advisor_payload["candidate_metrics"]),
-            data_quality_flags_json=json.dumps(advisor_payload["data_quality_flags"]),
-        ))
+        run_audit.records_created = len(created)
         self._db.commit()
 
         self._bus.publish(ForecastGeneratedEvent(
