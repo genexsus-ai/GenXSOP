@@ -892,6 +892,24 @@ export function ForecastingPage() {
                     ))}
                   </select>
                 </div>
+                <div className="mb-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="rounded bg-blue-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-blue-600">MAPE</p>
+                    <p className="text-sm font-semibold text-blue-900">{formatPercent(selectedBacktestModelRow.mape)}</p>
+                  </div>
+                  <div className="rounded bg-indigo-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-indigo-600">RMSE</p>
+                    <p className="text-sm font-semibold text-indigo-900">{formatNumber(selectedBacktestModelRow.rmse)}</p>
+                  </div>
+                  <div className="rounded bg-emerald-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-emerald-600">Hit Rate</p>
+                    <p className="text-sm font-semibold text-emerald-900">{formatPercent(selectedBacktestModelRow.hit_rate)}</p>
+                  </div>
+                  <div className="rounded bg-amber-50 px-2 py-1">
+                    <p className="text-[10px] uppercase tracking-wide text-amber-600">Score</p>
+                    <p className="text-sm font-semibold text-amber-900">{selectedBacktestModelRow.score.toFixed(2)}</p>
+                  </div>
+                </div>
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={backtestChartData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
@@ -907,33 +925,6 @@ export function ForecastingPage() {
                 </div>
               </div>
             )}
-
-            {modelComparison.map((m) => (
-              <div key={`${m.rank}-${m.model_type}`} className="flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-gray-700">
-                      #{m.rank} · {m.model_type.replace(/_/g, ' ')}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      Score: {m.score.toFixed(2)} · MAPE: {formatPercent(m.mape)}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${m.mape < 10 ? 'bg-emerald-500' : m.mape < 20 ? 'bg-amber-500' : 'bg-red-500'}`}
-                      style={{ width: `${Math.min(100, 100 - m.mape)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Bias / Hit Rate</p>
-                  <p className={`text-xs font-medium ${m.bias > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                    {m.bias > 0 ? '+' : ''}{m.bias.toFixed(1)}% · {formatPercent(m.hit_rate)}
-                  </p>
-                </div>
-              </div>
-            ))}
           </div>
         )}
       </Card>
