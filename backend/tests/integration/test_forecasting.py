@@ -84,6 +84,48 @@ class TestForecastingIntegration:
         ranks = [row["rank"] for row in payload["models"]]
         assert ranks == sorted(ranks)
 
+    def test_model_comparison_with_parameter_grid_returns_best_params(
+        self,
+        client: TestClient,
+        admin_headers: dict,
+        db: Session,
+        product,
+    ):
+        _seed_actual_history(db, product.id, months=18)
+
+        parameter_grid = (
+            '{'
+            '"ewma":[{"alpha":0.2,"trend_weight":0.2},{"alpha":0.6,"trend_weight":0.6}],'
+            '"moving_average":[{"window":3,"trend_weight":0.2},{"window":6,"trend_weight":0.8}]'
+            '}'
+        )
+
+        resp = client.get(
+            "/api/v1/forecasting/model-comparison",
+            params={
+                "product_id": product.id,
+                "test_months": 6,
+                "min_train_months": 6,
+                "models": ["moving_average", "ewma"],
+                "parameter_grid": parameter_grid,
+                "include_parameter_results": True,
+            },
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert isinstance(payload.get("parameter_grid_used"), dict)
+
+        assert isinstance(payload.get("models"), list)
+        assert len(payload["models"]) > 0
+        for model_row in payload["models"]:
+            assert "best_params" in model_row
+            assert isinstance(model_row["best_params"], dict)
+            assert "parameter_results" in model_row
+            assert isinstance(model_row["parameter_results"], list)
+            assert len(model_row["parameter_results"]) > 0
+
     def test_model_comparison_requires_sufficient_history(
         self,
         client: TestClient,
@@ -131,6 +173,7 @@ class TestForecastingIntegration:
             "advisor_confidence",
             "advisor_enabled",
             "fallback_used",
+            "selected_model_params",
             "warnings",
             "history_months",
             "candidate_metrics",
@@ -169,7 +212,44 @@ class TestForecastingIntegration:
         assert "advisor_confidence" in row
         assert "advisor_enabled" in row
         assert "fallback_used" in row
+        assert "model_params" in row
         assert "warnings" in row
+
+    def test_generate_with_model_params_persists_in_diagnostics_and_results(
+        self,
+        client: TestClient,
+        admin_headers: dict,
+        db: Session,
+        product,
+    ):
+        _seed_actual_history(db, product.id, months=18)
+
+        model_params = {"alpha": 0.2, "trend_weight": 0.25}
+        gen = client.post(
+            "/api/v1/forecasting/generate",
+            params={
+                "product_id": product.id,
+                "horizon": 3,
+                "model_type": "ewma",
+                "model_params": '{"alpha":0.2,"trend_weight":0.25}',
+            },
+            headers=admin_headers,
+        )
+        assert gen.status_code == 200
+        payload = gen.json()
+        assert payload.get("diagnostics", {}).get("selected_model") == "ewma"
+        assert payload.get("diagnostics", {}).get("selected_model_params") == model_params
+
+        results = client.get(
+            "/api/v1/forecasting/results",
+            params={"product_id": product.id, "model_type": "ewma"},
+            headers=admin_headers,
+        )
+        assert results.status_code == 200
+        rows = results.json()
+        assert isinstance(rows, list)
+        assert len(rows) > 0
+        assert rows[0].get("model_params") == model_params
 
         audit = (
             db.query(ForecastRunAudit)

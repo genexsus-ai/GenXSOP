@@ -87,6 +87,7 @@ export const forecastService = {
         product_id: data.product_id,
         horizon: data.horizon_months ?? 6,
         model_type: data.model_type,
+        model_params: data.model_params ? JSON.stringify(data.model_params) : undefined,
       },
     })
 
@@ -110,6 +111,7 @@ export const forecastService = {
       advisor_confidence: res.data.diagnostics?.advisor_confidence,
       advisor_enabled: res.data.diagnostics?.advisor_enabled,
       fallback_used: res.data.diagnostics?.fallback_used,
+      model_params: res.data.diagnostics?.selected_model_params,
       warnings: res.data.diagnostics?.warnings,
     }))
 
@@ -189,12 +191,20 @@ export const forecastService = {
     test_months?: number
     min_train_months?: number
     models?: string[]
+    parameter_grid?: Record<string, Array<Record<string, unknown>>>
+    include_parameter_results?: boolean
   }): Promise<ForecastModelComparisonResponse> {
-    const res = await api.get<ForecastModelComparisonResponse>('/forecasting/model-comparison', { params })
+    const queryParams = {
+      ...params,
+      parameter_grid: params.parameter_grid ? JSON.stringify(params.parameter_grid) : undefined,
+      include_parameter_results: params.include_parameter_results ?? false,
+    }
+    const res = await api.get<ForecastModelComparisonResponse>('/forecasting/model-comparison', { params: queryParams })
     return {
       ...res.data,
       models: [...(res.data.models ?? [])].sort((a, b) => a.rank - b.rank),
       data_quality_flags: res.data.data_quality_flags ?? [],
+      parameter_grid_used: res.data.parameter_grid_used ?? {},
     }
   },
 

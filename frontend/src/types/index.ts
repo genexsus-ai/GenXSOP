@@ -294,6 +294,7 @@ export interface Forecast {
   advisor_confidence?: number
   advisor_enabled?: boolean
   fallback_used?: boolean
+  model_params?: Record<string, unknown>
   warnings?: string[]
   created_at: string
 }
@@ -302,6 +303,7 @@ export interface GenerateForecastRequest {
   product_id: number
   model_type?: ForecastModelType
   horizon_months?: number
+  model_params?: Record<string, unknown>
 }
 
 export interface ForecastAccuracy {
@@ -325,6 +327,7 @@ export interface ForecastDiagnostics {
   advisor_confidence?: number
   advisor_enabled?: boolean
   fallback_used?: boolean
+  selected_model_params?: Record<string, unknown>
   warnings?: string[]
   history_months?: number
   candidate_metrics?: ForecastAccuracy[]
@@ -351,6 +354,20 @@ export interface ForecastModelComparisonItem {
   hit_rate: number
   period_count: number
   score: number
+  model_params?: Record<string, unknown>
+  best_params?: Record<string, unknown>
+  parameter_results?: Array<{
+    model_type: string
+    model_params?: Record<string, unknown>
+    mape: number
+    wape: number
+    rmse: number
+    mae: number
+    bias: number
+    hit_rate: number
+    period_count: number
+    score: number
+  }>
   series?: Array<{
     period: string
     actual_qty: number
@@ -364,6 +381,7 @@ export interface ForecastModelComparisonResponse {
   test_months: number
   min_train_months: number
   models: ForecastModelComparisonItem[]
+  parameter_grid_used?: Record<string, Array<Record<string, unknown>>>
   data_quality_flags: string[]
 }
 

@@ -69,6 +69,7 @@ export function ForecastingPage() {
   const [modelComparisonFlags, setModelComparisonFlags] = useState<string[]>([])
   const [comparisonLoading, setComparisonLoading] = useState(false)
   const [comparisonError, setComparisonError] = useState<string | null>(null)
+  const [backtestParameterGridText, setBacktestParameterGridText] = useState<string>('{}')
   const [selectedBacktestModel, setSelectedBacktestModel] = useState<string>('')
   const [comparisonParams, setComparisonParams] = useState({
     test_months: 6,
@@ -102,7 +103,18 @@ export function ForecastingPage() {
     model_type: 'prophet',
     horizon_months: 6,
   })
+  const [generationModelParamsText, setGenerationModelParamsText] = useState<string>('{}')
   const [activeStage, setActiveStage] = useState<ForecastStageKey>('stage1')
+
+  const parseJsonObject = (raw: string): Record<string, unknown> | undefined => {
+    const trimmed = raw.trim()
+    if (!trimmed) return undefined
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('JSON must be an object')
+    }
+    return parsed as Record<string, unknown>
+  }
 
   const load = async () => {
     setLoading(true)
@@ -205,6 +217,16 @@ export function ForecastingPage() {
   }, [chartProductId, historyRangeMonths])
 
   const runModelComparison = async (productId: number) => {
+    let parsedParameterGrid: Record<string, Array<Record<string, unknown>>> | undefined
+    try {
+      const parsed = parseJsonObject(backtestParameterGridText)
+      parsedParameterGrid = parsed as Record<string, Array<Record<string, unknown>>> | undefined
+    } catch {
+      setComparisonError('Parameter grid must be a valid JSON object (model_id -> [param objects]).')
+      setComparisonLoading(false)
+      return
+    }
+
     setComparisonLoading(true)
     setComparisonError(null)
     try {
@@ -212,6 +234,8 @@ export function ForecastingPage() {
         product_id: productId,
         test_months: comparisonParams.test_months,
         min_train_months: comparisonParams.min_train_months,
+        parameter_grid: parsedParameterGrid,
+        include_parameter_results: true,
       })
       setModelComparison(res.models ?? [])
       setSelectedBacktestModel(res.models?.[0]?.model_type ?? '')
@@ -242,9 +266,20 @@ export function ForecastingPage() {
       return
     }
     const generatedProductId = form.product_id
+    let parsedModelParams: Record<string, unknown> | undefined
+    try {
+      parsedModelParams = parseJsonObject(generationModelParamsText)
+    } catch {
+      toast.error('Model parameters must be a valid JSON object')
+      return
+    }
+
     setGenerating(true)
     try {
-      const generated = await forecastService.generateForecast(form as GenerateForecastRequest)
+      const generated = await forecastService.generateForecast({
+        ...(form as GenerateForecastRequest),
+        model_params: parsedModelParams,
+      })
       setLatestGeneratedForecasts(generated.forecasts ?? [])
       const runAuditId = generated.diagnostics?.run_audit_id
       setLastGeneratedRunAuditId(runAuditId)
@@ -852,6 +887,18 @@ export function ForecastingPage() {
           </div>
         </div>
 
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-gray-700 mb-1">Parameter Grid (optional JSON)</label>
+          <textarea
+            rows={4}
+            value={backtestParameterGridText}
+            onChange={(e) => setBacktestParameterGridText(e.target.value)}
+            className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-lg font-mono"
+            placeholder='{"ewma":[{"alpha":0.2},{"alpha":0.5}],"arima":[{"p":1,"d":1,"q":1}]}'
+          />
+          <p className="mt-1 text-[11px] text-gray-500">Format: model_id → array of parameter objects. Best parameter set is selected per model.</p>
+        </div>
+
         {modelComparisonFlags.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
             {modelComparisonFlags.map((flag) => (
@@ -910,6 +957,12 @@ export function ForecastingPage() {
                     <p className="text-sm font-semibold text-amber-900">{selectedBacktestModelRow.score.toFixed(2)}</p>
                   </div>
                 </div>
+                {selectedBacktestModelRow.best_params && Object.keys(selectedBacktestModelRow.best_params).length > 0 && (
+                  <div className="mb-3 rounded bg-gray-50 px-2 py-2">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Best Params</p>
+                    <pre className="text-[11px] text-gray-700 whitespace-pre-wrap">{JSON.stringify(selectedBacktestModelRow.best_params, null, 2)}</pre>
+                  </div>
+                )}
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={backtestChartData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
@@ -925,6 +978,45 @@ export function ForecastingPage() {
                 </div>
               </div>
             )}
+
+            <div className="overflow-x-auto rounded-lg border border-gray-100">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-2 py-2">Model</th>
+                    <th className="text-left px-2 py-2">Score</th>
+                    <th className="text-left px-2 py-2">MAPE</th>
+                    <th className="text-left px-2 py-2">Best Params</th>
+                    <th className="text-left px-2 py-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {modelComparison.map((m) => (
+                    <tr key={m.model_type} className="border-b border-gray-50">
+                      <td className="px-2 py-2">{m.model_type.replace(/_/g, ' ')}</td>
+                      <td className="px-2 py-2">{m.score.toFixed(2)}</td>
+                      <td className="px-2 py-2">{formatPercent(m.mape)}</td>
+                      <td className="px-2 py-2">
+                        <code className="text-[11px]">{JSON.stringify(m.best_params ?? m.model_params ?? {})}</code>
+                      </td>
+                      <td className="px-2 py-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setForm((prev) => ({ ...prev, model_type: m.model_type as GenerateForecastRequest['model_type'] }))
+                            setGenerationModelParamsText(JSON.stringify(m.best_params ?? m.model_params ?? {}, null, 2))
+                            setActiveStage('stage3')
+                          }}
+                        >
+                          Use in setup
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </Card>
@@ -948,6 +1040,16 @@ export function ForecastingPage() {
             <input type="number" min={1} max={24} value={form.horizon_months ?? 6}
               onChange={(e) => setForm((f) => ({ ...f, horizon_months: Number(e.target.value) }))}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Parameters (optional JSON)</label>
+            <textarea
+              rows={4}
+              value={generationModelParamsText}
+              onChange={(e) => setGenerationModelParamsText(e.target.value)}
+              className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              placeholder='{"alpha":0.35}'
+            />
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -9,7 +9,7 @@ Principles applied:
 - Dependency Inversion Principle (DIP): ForecastContext depends on the abstraction, not concrete algorithms.
 """
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import numpy as np
 import pandas as pd
 from datetime import date
@@ -43,7 +43,7 @@ class BaseForecastStrategy(ABC):
         ...
 
     @abstractmethod
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Generate a forecast.
 
@@ -82,8 +82,14 @@ class MovingAverageStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 3
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
-        window = min(6, len(df))
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
+        configured_window = int(params.get("window", 6)) if str(params.get("window", "")).strip() else 6
+        configured_window = max(2, min(12, configured_window))
+        trend_weight = float(params.get("trend_weight", 0.5))
+        trend_weight = max(0.0, min(1.0, trend_weight))
+
+        window = min(configured_window, len(df))
         recent = df["y"].tail(window).values
         weights = np.arange(1, window + 1, dtype=float)
         weighted_avg = float(np.average(recent, weights=weights))
@@ -93,9 +99,9 @@ class MovingAverageStrategy(BaseForecastStrategy):
         return [
             {
                 "period": p,
-                "predicted_qty": round(max(0.0, weighted_avg + trend * i * 0.5), 2),
-                "lower_bound": round(max(0.0, weighted_avg + trend * i * 0.5 - 1.96 * std), 2),
-                "upper_bound": round(weighted_avg + trend * i * 0.5 + 1.96 * std, 2),
+                "predicted_qty": round(max(0.0, weighted_avg + trend * i * trend_weight), 2),
+                "lower_bound": round(max(0.0, weighted_avg + trend * i * trend_weight - 1.96 * std), 2),
+                "upper_bound": round(weighted_avg + trend * i * trend_weight + 1.96 * std, 2),
                 "confidence": 80.0,
                 "mape": None,
             }
@@ -120,17 +126,19 @@ class ExponentialSmoothingStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 12
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
         if len(df) < 4:
-            return MovingAverageStrategy().forecast(df, horizon)
+            return MovingAverageStrategy().forecast(df, horizon, params=params)
         try:
             from statsmodels.tsa.holtwinters import ExponentialSmoothing
+            damped_trend = bool(params.get("damped_trend", True))
             model = ExponentialSmoothing(
                 df["y"].values,
                 trend="add",
                 seasonal="add" if len(df) >= 24 else None,
                 seasonal_periods=12 if len(df) >= 24 else None,
-                damped_trend=True,
+                damped_trend=damped_trend,
             )
             fit = model.fit(optimized=True)
             forecast_values = fit.forecast(horizon)
@@ -148,7 +156,7 @@ class ExponentialSmoothingStrategy(BaseForecastStrategy):
                 for p, v in zip(future_periods, forecast_values)
             ]
         except Exception:
-            return MovingAverageStrategy().forecast(df, horizon)
+            return MovingAverageStrategy().forecast(df, horizon, params=params)
 
 
 class EWMAStrategy(BaseForecastStrategy):
@@ -166,8 +174,12 @@ class EWMAStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 4
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
-        alpha = 0.35
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
+        alpha = float(params.get("alpha", 0.35))
+        alpha = max(0.05, min(0.95, alpha))
+        trend_weight = float(params.get("trend_weight", 0.4))
+        trend_weight = max(0.0, min(1.0, trend_weight))
         ewma = float(df["y"].ewm(alpha=alpha, adjust=False).mean().iloc[-1])
         trend = float(df["y"].diff().tail(3).mean()) if len(df) >= 4 else 0.0
         std = float(df["y"].std()) if len(df) > 1 else max(1.0, ewma * 0.1)
@@ -175,9 +187,9 @@ class EWMAStrategy(BaseForecastStrategy):
         return [
             {
                 "period": p,
-                "predicted_qty": round(max(0.0, ewma + trend * i * 0.4), 2),
-                "lower_bound": round(max(0.0, ewma + trend * i * 0.4 - 1.64 * std), 2),
-                "upper_bound": round(max(0.0, ewma + trend * i * 0.4 + 1.64 * std), 2),
+                "predicted_qty": round(max(0.0, ewma + trend * i * trend_weight), 2),
+                "lower_bound": round(max(0.0, ewma + trend * i * trend_weight - 1.64 * std), 2),
+                "upper_bound": round(max(0.0, ewma + trend * i * trend_weight + 1.64 * std), 2),
                 "confidence": 82.0,
                 "mape": None,
             }
@@ -200,9 +212,9 @@ class SeasonalNaiveStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 12
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if len(df) < 12:
-            return EWMAStrategy().forecast(df, horizon)
+            return EWMAStrategy().forecast(df, horizon, params=params)
         y = df["y"].values
         std = float(df["y"].std()) if len(df) > 1 else max(1.0, float(np.mean(y)) * 0.1)
         future_periods = self._build_future_periods(df, horizon)
@@ -238,13 +250,20 @@ class ARIMAStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 12
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
         if len(df) < self.min_data_months:
-            return ExponentialSmoothingStrategy().forecast(df, horizon)
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
 
         try:
             from statsmodels.tsa.arima.model import ARIMA
-            model = ARIMA(df["y"].astype(float).values, order=(1, 1, 1))
+            p = int(params.get("p", 1)) if str(params.get("p", "")).strip() else 1
+            d = int(params.get("d", 1)) if str(params.get("d", "")).strip() else 1
+            q = int(params.get("q", 1)) if str(params.get("q", "")).strip() else 1
+            p = max(0, min(3, p))
+            d = max(0, min(2, d))
+            q = max(0, min(3, q))
+            model = ARIMA(df["y"].astype(float).values, order=(p, d, q))
             fit = model.fit()
             pred = fit.get_forecast(steps=horizon)
             vals = pred.predicted_mean
@@ -262,7 +281,7 @@ class ARIMAStrategy(BaseForecastStrategy):
                 for i, p in enumerate(future_periods)
             ]
         except Exception:
-            return ExponentialSmoothingStrategy().forecast(df, horizon)
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
 
 
 # ── Concrete Strategy 3: Prophet ─────────────────────────────────────────────
@@ -282,17 +301,23 @@ class ProphetStrategy(BaseForecastStrategy):
     def min_data_months(self) -> int:
         return 24
 
-    def forecast(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def forecast(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        params = params or {}
         if len(df) < 12:
-            return ExponentialSmoothingStrategy().forecast(df, horizon)
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
         try:
             from prophet import Prophet
+            changepoint_prior_scale = float(params.get("changepoint_prior_scale", 0.05))
+            changepoint_prior_scale = max(0.001, min(0.5, changepoint_prior_scale))
+            seasonality_mode = str(params.get("seasonality_mode", "multiplicative"))
+            if seasonality_mode not in {"multiplicative", "additive"}:
+                seasonality_mode = "multiplicative"
             model = Prophet(
                 yearly_seasonality=True,
                 weekly_seasonality=False,
                 daily_seasonality=False,
-                seasonality_mode="multiplicative",
-                changepoint_prior_scale=0.05,
+                seasonality_mode=seasonality_mode,
+                changepoint_prior_scale=changepoint_prior_scale,
                 interval_width=0.95,
             )
             model.fit(df)
@@ -311,7 +336,7 @@ class ProphetStrategy(BaseForecastStrategy):
                 for i, (_, row) in enumerate(forecast.iterrows())
             ]
         except Exception:
-            return ExponentialSmoothingStrategy().forecast(df, horizon)
+            return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)
 
 
 # ── Context (uses a strategy) ─────────────────────────────────────────────────
@@ -333,6 +358,6 @@ class ForecastContext:
         """Allow runtime strategy switching."""
         self._strategy = strategy
 
-    def execute(self, df: pd.DataFrame, horizon: int) -> List[Dict[str, Any]]:
+    def execute(self, df: pd.DataFrame, horizon: int, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Run the current strategy."""
-        return self._strategy.forecast(df, horizon)
+        return self._strategy.forecast(df, horizon, params=params)

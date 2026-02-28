@@ -25,6 +25,29 @@ from app.utils.events import get_event_bus, ForecastGeneratedEvent
 
 class ForecastService:
 
+    _model_param_schema: Dict[str, Dict[str, Dict[str, Any]]] = {
+        "moving_average": {
+            "window": {"type": "int", "min": 2, "max": 12},
+            "trend_weight": {"type": "float", "min": 0.0, "max": 1.0},
+        },
+        "ewma": {
+            "alpha": {"type": "float", "min": 0.05, "max": 0.95},
+            "trend_weight": {"type": "float", "min": 0.0, "max": 1.0},
+        },
+        "exp_smoothing": {
+            "damped_trend": {"type": "bool"},
+        },
+        "arima": {
+            "p": {"type": "int", "min": 0, "max": 3},
+            "d": {"type": "int", "min": 0, "max": 2},
+            "q": {"type": "int", "min": 0, "max": 3},
+        },
+        "prophet": {
+            "changepoint_prior_scale": {"type": "float", "min": 0.001, "max": 0.5},
+            "seasonality_mode": {"type": "enum", "values": {"multiplicative", "additive"}},
+        },
+    }
+
     def __init__(self, db: Session):
         self._db = db
         self._repo = ForecastRepository(db)
@@ -76,6 +99,7 @@ class ForecastService:
         model_type: Optional[str],
         horizon: int,
         user_id: int,
+        model_params: Optional[Dict[str, Any]] = None,
     ) -> List[Forecast]:
         """Compatibility method returning only saved forecast records."""
         return self.generate_forecast_with_diagnostics(
@@ -83,6 +107,7 @@ class ForecastService:
             model_type=model_type,
             horizon=horizon,
             user_id=user_id,
+            model_params=model_params,
         )["forecasts"]
 
     def generate_forecast_with_diagnostics(
@@ -91,6 +116,7 @@ class ForecastService:
         model_type: Optional[str],
         horizon: int,
         user_id: int,
+        model_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Generate forecast with model diagnostics and advisor metadata.
@@ -100,6 +126,7 @@ class ForecastService:
 
         context = ForecastModelFactory.create_context(advisor.recommended_model)
         history_df = advisor_payload["history_df"]
+        selected_model_params = self._normalize_model_params(context.strategy.model_id, model_params)
 
         run_audit = ForecastRunAudit(
             product_id=product_id,
@@ -110,7 +137,7 @@ class ForecastService:
             advisor_enabled=advisor.advisor_enabled,
             fallback_used=advisor.fallback_used,
             advisor_confidence=advisor.confidence,
-            selection_reason=advisor.reason,
+            selection_reason=self._build_selection_reason(advisor.reason, selected_model_params),
             history_months=advisor_payload["history_months"],
             records_created=0,
             warnings_json=json.dumps(advisor.warnings),
@@ -120,7 +147,7 @@ class ForecastService:
         self._db.add(run_audit)
         self._db.flush()
 
-        predictions = context.execute(history_df, horizon)
+        predictions = context.execute(history_df, horizon, params=selected_model_params)
         created = []
         for pred in predictions:
             # Upsert: delete existing forecast for same product/model/period
@@ -143,6 +170,7 @@ class ForecastService:
                     "advisor_confidence": advisor.confidence,
                     "advisor_enabled": advisor.advisor_enabled,
                     "fallback_used": advisor.fallback_used,
+                    "model_params": selected_model_params,
                     "warnings": advisor.warnings,
                 }),
             )
@@ -154,6 +182,7 @@ class ForecastService:
             "advisor_confidence": advisor.confidence,
             "advisor_enabled": advisor.advisor_enabled,
             "fallback_used": advisor.fallback_used,
+            "selected_model_params": selected_model_params,
             "warnings": advisor.warnings,
             "history_months": advisor_payload["history_months"],
             "candidate_metrics": advisor_payload["candidate_metrics"],
@@ -229,6 +258,8 @@ class ForecastService:
         test_months: int = 6,
         min_train_months: int = 6,
         models: Optional[List[str]] = None,
+        parameter_grid: Optional[Dict[str, Any]] = None,
+        include_parameter_results: bool = False,
     ) -> Dict[str, Any]:
         """
         Compare model performance using walk-forward backtesting on historical actuals.
@@ -250,6 +281,8 @@ class ForecastService:
             min_train_months=min_train_months,
             models=models,
             include_series=True,
+            parameter_grid=parameter_grid,
+            include_parameter_results=include_parameter_results,
         )
 
         ranked_rows = [
@@ -262,6 +295,7 @@ class ForecastService:
             "test_months": test_months,
             "min_train_months": min_train_months,
             "models": ranked_rows,
+            "parameter_grid_used": parameter_grid or {},
             "data_quality_flags": self._data_quality_flags(df),
         }
 
@@ -450,11 +484,14 @@ class ForecastService:
         min_train_months: int = 3,
         models: Optional[List[str]] = None,
         include_series: bool = False,
+        parameter_grid: Optional[Dict[str, Any]] = None,
+        include_parameter_results: bool = False,
     ) -> List[dict]:
         metrics: List[dict] = []
         available_model_ids = [m["id"] for m in ForecastModelFactory.list_models()]
         model_ids = [m for m in (models or available_model_ids) if m in available_model_ids]
         n = len(df)
+        parameter_grid = parameter_grid or {}
 
         for model_id in model_ids:
             # Backtesting should benchmark *all* registered models, not only those
@@ -466,64 +503,130 @@ class ForecastService:
             if n <= min_history:
                 continue
 
-            start = max(min_history, n - max(1, test_months))
-            abs_errors: List[float] = []
-            sq_errors: List[float] = []
-            pct_errors: List[float] = []
-            bias_pct: List[float] = []
-            hits = 0
-            samples = 0
-            actual_sum = 0.0
-            series_points: List[dict] = []
+            candidate_param_sets = parameter_grid.get(model_id)
+            if isinstance(candidate_param_sets, list) and len(candidate_param_sets) > 0:
+                normalized_candidates = [self._normalize_model_params(model_id, params) for params in candidate_param_sets]
+            else:
+                normalized_candidates = [{}]
 
-            for split in range(start, n):
-                train = df.iloc[:split]
-                actual = float(df.iloc[split]["y"])
-                pred = float(ForecastModelFactory.create_context(model_id).execute(train, 1)[0]["predicted_qty"])
-                err = pred - actual
-                abs_err = abs(err)
-                abs_errors.append(abs_err)
-                sq_errors.append(err ** 2)
-                if include_series:
-                    period = pd.Timestamp(df.iloc[split]["ds"]).date()
-                    series_points.append({
-                        "period": str(period),
-                        "actual_qty": round(actual, 4),
-                        "predicted_qty": round(pred, 4),
-                    })
-                actual_sum += abs(actual)
-                if actual != 0:
-                    pct = abs_err / abs(actual)
-                    pct_errors.append(pct)
-                    bias_pct.append(err / actual)
-                    if pct <= 0.2:
-                        hits += 1
-                samples += 1
+            candidate_results: List[dict] = []
+            for param_set in normalized_candidates:
+                start = max(min_history, n - max(1, test_months))
+                abs_errors: List[float] = []
+                sq_errors: List[float] = []
+                pct_errors: List[float] = []
+                bias_pct: List[float] = []
+                hits = 0
+                samples = 0
+                actual_sum = 0.0
+                series_points: List[dict] = []
 
-            if samples == 0:
+                for split in range(start, n):
+                    train = df.iloc[:split]
+                    actual = float(df.iloc[split]["y"])
+                    pred = float(
+                        ForecastModelFactory.create_context(model_id)
+                        .execute(train, 1, params=param_set)[0]["predicted_qty"]
+                    )
+                    err = pred - actual
+                    abs_err = abs(err)
+                    abs_errors.append(abs_err)
+                    sq_errors.append(err ** 2)
+                    if include_series:
+                        period = pd.Timestamp(df.iloc[split]["ds"]).date()
+                        series_points.append({
+                            "period": str(period),
+                            "actual_qty": round(actual, 4),
+                            "predicted_qty": round(pred, 4),
+                        })
+                    actual_sum += abs(actual)
+                    if actual != 0:
+                        pct = abs_err / abs(actual)
+                        pct_errors.append(pct)
+                        bias_pct.append(err / actual)
+                        if pct <= 0.2:
+                            hits += 1
+                    samples += 1
+
+                if samples == 0:
+                    continue
+
+                mape = (sum(pct_errors) / len(pct_errors) * 100.0) if pct_errors else 0.0
+                wape = (sum(abs_errors) / actual_sum * 100.0) if actual_sum > 0 else 0.0
+                rmse = sqrt(sum(sq_errors) / len(sq_errors))
+                mae = sum(abs_errors) / len(abs_errors)
+                bias = (sum(bias_pct) / len(bias_pct) * 100.0) if bias_pct else 0.0
+                hit_rate = (hits / len(pct_errors) * 100.0) if pct_errors else 0.0
+                score = round(mape + (wape * 0.25), 4)
+
+                candidate_results.append({
+                    "model_type": model_id,
+                    "model_params": param_set,
+                    "mape": round(mape, 4),
+                    "wape": round(wape, 4),
+                    "rmse": round(rmse, 4),
+                    "mae": round(mae, 4),
+                    "bias": round(bias, 4),
+                    "hit_rate": round(hit_rate, 4),
+                    "period_count": samples,
+                    "score": score,
+                    **({"series": series_points} if include_series else {}),
+                })
+
+            if not candidate_results:
                 continue
 
-            mape = (sum(pct_errors) / len(pct_errors) * 100.0) if pct_errors else 0.0
-            wape = (sum(abs_errors) / actual_sum * 100.0) if actual_sum > 0 else 0.0
-            rmse = sqrt(sum(sq_errors) / len(sq_errors))
-            mae = sum(abs_errors) / len(abs_errors)
-            bias = (sum(bias_pct) / len(bias_pct) * 100.0) if bias_pct else 0.0
-            hit_rate = (hits / len(pct_errors) * 100.0) if pct_errors else 0.0
-
-            metrics.append({
-                "model_type": model_id,
-                "mape": round(mape, 4),
-                "wape": round(wape, 4),
-                "rmse": round(rmse, 4),
-                "mae": round(mae, 4),
-                "bias": round(bias, 4),
-                "hit_rate": round(hit_rate, 4),
-                "period_count": samples,
-                "score": round(mape + (wape * 0.25), 4),
-                **({"series": series_points} if include_series else {}),
-            })
+            best = sorted(candidate_results, key=lambda row: row["score"])[0]
+            best_row = {
+                **best,
+                "best_params": best.get("model_params", {}),
+            }
+            if include_parameter_results:
+                best_row["parameter_results"] = candidate_results
+            metrics.append(best_row)
 
         return sorted(metrics, key=lambda m: m["score"])
+
+    def _build_selection_reason(self, base_reason: str, model_params: Dict[str, Any]) -> str:
+        if not model_params:
+            return base_reason
+        return f"{base_reason} Parameters: {json.dumps(model_params, sort_keys=True)}"
+
+    def _normalize_model_params(self, model_id: str, params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not isinstance(params, dict):
+            return {}
+        schema = self._model_param_schema.get(model_id, {})
+        if not schema:
+            return {}
+
+        normalized: Dict[str, Any] = {}
+        for key, value in params.items():
+            if key not in schema:
+                continue
+            rules = schema[key]
+            kind = rules.get("type")
+            try:
+                if kind == "int":
+                    casted = int(value)
+                    normalized[key] = max(rules["min"], min(rules["max"], casted))
+                elif kind == "float":
+                    casted = float(value)
+                    normalized[key] = max(rules["min"], min(rules["max"], casted))
+                elif kind == "bool":
+                    if isinstance(value, bool):
+                        normalized[key] = value
+                    elif isinstance(value, str):
+                        normalized[key] = value.strip().lower() in {"true", "1", "yes", "y", "on"}
+                    else:
+                        normalized[key] = bool(value)
+                elif kind == "enum":
+                    casted = str(value)
+                    if casted in rules["values"]:
+                        normalized[key] = casted
+            except (TypeError, ValueError):
+                continue
+
+        return normalized
 
     def _select_default_model(self, history_months: int, candidate_metrics: List[dict]) -> str:
         if candidate_metrics:

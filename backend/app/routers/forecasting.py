@@ -2,9 +2,9 @@
 Forecasting Router — Thin Controller (SRP / DIP)
 Uses ForecastService which internally uses Strategy + Factory patterns.
 """
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import date
 import json
 
@@ -25,6 +25,18 @@ router = APIRouter(prefix="/forecasting", tags=["AI Forecasting"])
 
 PLANNER_ROLES = ["admin", "demand_planner", "supply_planner", "finance_analyst", "sop_coordinator"]
 OPS_ROLES = ["admin", "sop_coordinator", "executive"]
+
+
+def _parse_json_query(raw: Optional[str], field_name: str) -> Optional[Dict[str, Any]]:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON for '{field_name}': {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail=f"Query param '{field_name}' must be a JSON object")
+    return parsed
 
 
 def get_forecast_service(db: Session = Depends(get_db)) -> ForecastService:
@@ -49,15 +61,21 @@ def generate_forecast(
     product_id: int,
     horizon: int = Query(6, ge=1, le=24),
     model_type: Optional[str] = None,
+    model_params: Optional[str] = Query(
+        None,
+        description="Optional JSON object string with model parameters for selected model",
+    ),
     service: ForecastService = Depends(get_forecast_service),
     current_user: User = Depends(require_roles(PLANNER_ROLES)),
 ):
     """Generate forecast using Strategy + Factory pattern. Auto-selects best model if model_type is None."""
+    parsed_model_params = _parse_json_query(model_params, "model_params")
     payload = service.generate_forecast_with_diagnostics(
         product_id=product_id,
         model_type=model_type,
         horizon=horizon,
         user_id=current_user.id,
+        model_params=parsed_model_params,
     )
     results = payload["forecasts"]
     return {
@@ -274,6 +292,7 @@ def list_forecast_results(
             "advisor_confidence": _parse_features(f.features_used).get("advisor_confidence"),
             "advisor_enabled": _parse_features(f.features_used).get("advisor_enabled"),
             "fallback_used": _parse_features(f.features_used).get("fallback_used"),
+            "model_params": _parse_features(f.features_used).get("model_params"),
             "warnings": _parse_features(f.features_used).get("warnings"),
         })
         for f in results
@@ -321,15 +340,26 @@ def forecast_model_comparison(
     test_months: int = Query(6, ge=1, le=24),
     min_train_months: int = Query(6, ge=3, le=60),
     models: Optional[List[str]] = Query(None),
+    parameter_grid: Optional[str] = Query(
+        None,
+        description=(
+            "Optional JSON object string mapping model_id -> list of parameter-set objects "
+            "for per-model backtesting"
+        ),
+    ),
+    include_parameter_results: bool = Query(False),
     service: ForecastService = Depends(get_forecast_service),
     _: User = Depends(get_current_user),
 ):
     """Compare forecast model performance using historical walk-forward backtesting."""
+    parsed_parameter_grid = _parse_json_query(parameter_grid, "parameter_grid")
     return service.get_model_comparison(
         product_id=product_id,
         test_months=test_months,
         min_train_months=min_train_months,
         models=models,
+        parameter_grid=parsed_parameter_grid,
+        include_parameter_results=include_parameter_results,
     )
 
 
