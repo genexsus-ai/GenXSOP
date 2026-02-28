@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Plus, Search, Filter, CheckCircle, XCircle, Send } from 'lucide-react'
 import { supplyService, type SupplyFilters } from '@/services/supplyService'
+import { productService } from '@/services/productService'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { formatPeriod, formatNumber } from '@/utils/formatters'
-import type { SupplyPlan, CreateSupplyPlanRequest } from '@/types'
+import type { SupplyPlan, CreateSupplyPlanRequest, Product, SupplyGapAnalysisItem } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -25,6 +26,11 @@ export function SupplyPage() {
   const [filters, setFilters] = useState<SupplyFilters>({ page: 1, page_size: 20 })
   const [showCreate, setShowCreate] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [products, setProducts] = useState<Product[]>([])
+  const [gapAnalysis, setGapAnalysis] = useState<SupplyGapAnalysisItem[]>([])
+  const [gapLoading, setGapLoading] = useState(false)
+  const [gapProductId, setGapProductId] = useState<number | undefined>(undefined)
+  const [gapPeriod, setGapPeriod] = useState<string>(new Date().toISOString().slice(0, 7))
   const [form, setForm] = useState<Partial<CreateSupplyPlanRequest>>({ location: 'Main Warehouse' })
 
   const load = async () => {
@@ -40,7 +46,40 @@ export function SupplyPage() {
     }
   }
 
+  const loadProducts = async () => {
+    try {
+      const first = await productService.getProducts({ page: 1, page_size: 100 })
+      let all = [...first.items]
+      for (let page = 2; page <= first.total_pages; page += 1) {
+        const next = await productService.getProducts({ page, page_size: 100 })
+        all = all.concat(next.items)
+      }
+      setProducts(all)
+    } catch {
+      // handled
+    }
+  }
+
+  const loadGapAnalysis = async () => {
+    setGapLoading(true)
+    try {
+      const period = gapPeriod ? `${gapPeriod}-01` : undefined
+      const data = await supplyService.getGapAnalysis({
+        period,
+        product_id: gapProductId,
+      })
+      setGapAnalysis(data)
+    } catch {
+      // handled
+      setGapAnalysis([])
+    } finally {
+      setGapLoading(false)
+    }
+  }
+
   useEffect(() => { load() }, [filters])
+  useEffect(() => { loadProducts() }, [])
+  useEffect(() => { loadGapAnalysis() }, [gapProductId, gapPeriod])
 
   const handleAction = async (id: number, action: 'submit' | 'approve' | 'reject') => {
     setActionLoading(id)
@@ -178,6 +217,96 @@ export function SupplyPage() {
               <Button variant="outline" size="sm" disabled={(filters.page ?? 1) * (filters.page_size ?? 20) >= total}
                 onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 1) + 1 }))}>Next</Button>
             </div>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Supply Gap Analysis"
+        subtitle="Planned supply + available inventory against demand"
+        actions={
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">Period</label>
+              <input
+                type="month"
+                value={gapPeriod}
+                onChange={(e) => setGapPeriod(e.target.value)}
+                className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-gray-600 mb-1">Product</label>
+              <select
+                value={gapProductId ?? ''}
+                onChange={(e) => setGapProductId(e.target.value ? Number(e.target.value) : undefined)}
+                className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[260px]"
+              >
+                <option value="">All Products</option>
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    #{product.id} — {product.sku} — {product.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadGapAnalysis}>
+              Refresh
+            </Button>
+          </div>
+        }
+      >
+        {gapLoading ? (
+          <SkeletonTable rows={6} cols={10} />
+        ) : gapAnalysis.length === 0 ? (
+          <p className="text-sm text-gray-500">No gap analysis data found for the selected filters.</p>
+        ) : (
+          <div className="overflow-x-auto border border-gray-100 rounded-lg">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {[
+                    'Product',
+                    'Period',
+                    'Demand',
+                    'Planned Supply',
+                    'Inventory Available',
+                    'Effective Supply',
+                    'Additional Prod Required',
+                    'Gap',
+                    'Gap %',
+                    'Status',
+                  ].map((h) => (
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {gapAnalysis.map((item) => (
+                  <tr key={`${item.product_id}-${item.period}`}>
+                    <td className="px-4 py-2.5 text-gray-800">
+                      <p className="font-medium">{item.product_name}</p>
+                      <p className="text-xs text-gray-500">{item.sku}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-700">{formatPeriod(item.period)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.demand_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.planned_supply_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.inventory_available_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums font-medium text-gray-900">{formatNumber(item.effective_supply_qty)}</td>
+                    <td className="px-4 py-2.5 tabular-nums">{formatNumber(item.additional_prod_required_qty)}</td>
+                    <td className={`px-4 py-2.5 tabular-nums font-medium ${item.gap < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {formatNumber(item.gap)}
+                    </td>
+                    <td className={`px-4 py-2.5 tabular-nums ${item.gap_pct < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {item.gap_pct.toFixed(1)}%
+                    </td>
+                    <td className="px-4 py-2.5"><StatusBadge status={item.status} size="sm" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>

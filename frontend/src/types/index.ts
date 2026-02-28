@@ -160,6 +160,22 @@ export interface CreateSupplyPlanRequest {
   constraints?: string
 }
 
+export interface SupplyGapAnalysisItem {
+  product_id: number
+  product_name: string
+  sku: string
+  period: string
+  demand_qty: number
+  planned_supply_qty: number
+  inventory_available_qty: number
+  effective_supply_qty: number
+  additional_prod_required_qty: number
+  supply_qty: number
+  gap: number
+  gap_pct: number
+  status: string
+}
+
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 export type InventoryStatus = 'normal' | 'low' | 'critical' | 'excess'

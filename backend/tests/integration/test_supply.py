@@ -8,6 +8,9 @@ Tests:
 """
 import pytest
 from fastapi.testclient import TestClient
+from decimal import Decimal
+
+from app.models.inventory import Inventory
 
 
 class TestSupplyPlanCRUD:
@@ -101,15 +104,40 @@ class TestSupplyPlanStatusTransitions:
 
 class TestSupplyGapAnalysis:
 
-    def test_gap_analysis_endpoint(self, client: TestClient, admin_headers, demand_plan, supply_plan):
+    def test_gap_analysis_endpoint(self, client: TestClient, admin_headers, demand_plan, supply_plan, db):
+        db.add(
+            Inventory(
+                product_id=demand_plan.product_id,
+                location="Main",
+                on_hand_qty=Decimal("200.00"),
+                allocated_qty=Decimal("0.00"),
+                in_transit_qty=Decimal("0.00"),
+                safety_stock=Decimal("50.00"),
+                reorder_point=Decimal("80.00"),
+                status="normal",
+                valuation=Decimal("20000.00"),
+            )
+        )
+        db.commit()
+
         resp = client.get(
-            f"/api/v1/supply/gap-analysis?product_id={demand_plan.product_id}",
+            f"/api/v1/supply/gap-analysis?product_id={demand_plan.product_id}&period=2026-03-01",
             headers=admin_headers,
         )
         assert resp.status_code == 200
         data = resp.json()
-        # Should return gap analysis data
-        assert isinstance(data, (list, dict))
+        assert isinstance(data, list)
+        assert len(data) >= 1
+
+        item = data[0]
+        assert item["product_id"] == demand_plan.product_id
+        assert float(item["demand_qty"]) == 500.0
+        assert float(item["planned_supply_qty"]) == 480.0
+        assert float(item["inventory_available_qty"]) == 200.0
+        assert float(item["effective_supply_qty"]) == 680.0
+        assert float(item["additional_prod_required_qty"]) == 300.0
+        assert float(item["supply_qty"]) == 680.0
+        assert float(item["gap"]) == 180.0
 
     def test_filter_supply_by_product(self, client: TestClient, admin_headers, supply_plan, product):
         resp = client.get(

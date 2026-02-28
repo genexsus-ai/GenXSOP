@@ -102,7 +102,8 @@ def delete_supply_plan(
 @router.get("/gap-analysis", response_model=List[GapAnalysisItem])
 def gap_analysis(
     period: Optional[date] = None,
+    product_id: Optional[int] = None,
     service: SupplyService = Depends(get_supply_service),
     _: User = Depends(get_current_user),
 ):
-    return service.gap_analysis(period=period)
+    return service.gap_analysis(period=period, product_id=product_id)

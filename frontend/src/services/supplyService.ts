@@ -1,5 +1,5 @@
 import api from './api'
-import type { SupplyPlan, CreateSupplyPlanRequest, PaginatedResponse } from '@/types'
+import type { SupplyPlan, CreateSupplyPlanRequest, PaginatedResponse, SupplyGapAnalysisItem } from '@/types'
 
 export interface SupplyFilters {
   page?: number
@@ -51,8 +51,8 @@ export const supplyService = {
     return res.data
   },
 
-  async getGapAnalysis(params?: { period_start?: string; period_end?: string }) {
-    const res = await api.get('/supply/gap-analysis', { params })
+  async getGapAnalysis(params?: { period?: string; product_id?: number }) {
+    const res = await api.get<SupplyGapAnalysisItem[]>('/supply/gap-analysis', { params })
     return res.data
   },
 }

@@ -60,6 +60,10 @@ class GapAnalysisItem(BaseModel):
     sku: str
     period: date
     demand_qty: Decimal
+    planned_supply_qty: Decimal
+    inventory_available_qty: Decimal
+    effective_supply_qty: Decimal
+    additional_prod_required_qty: Decimal
     supply_qty: Decimal
     gap: Decimal
     gap_pct: float
