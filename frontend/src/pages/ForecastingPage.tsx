@@ -415,14 +415,9 @@ export function ForecastingPage() {
 
   const historicalSeries = historyPlans.map((p) => ({
     period: p.period,
-    historical_qty:
-      p.actual_qty != null
-        ? Number(p.actual_qty)
-        : p.consensus_qty != null
-          ? Number(p.consensus_qty)
-          : p.forecast_qty != null
-            ? Number(p.forecast_qty)
-            : null,
+    // Historical line should represent true history only.
+    // Keep this strictly to actuals to avoid plotting forecast/consensus as history points.
+    historical_qty: p.actual_qty != null ? Number(p.actual_qty) : null,
   }))
 
   const forecastPoints = [...latestGeneratedForecasts, ...forecasts]
@@ -688,6 +683,40 @@ export function ForecastingPage() {
                 </Button>
               )}
             </div>
+          </div>
+        )}
+      </Card>
+      )}
+
+      {activeStage === 'stage4' && (
+      <Card title="Consensus History" subtitle="Latest consensus versions for selected product">
+        {selectedConsensus.length === 0 ? (
+          <p className="text-sm text-gray-500">No consensus history yet for selected product.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Period', 'Version', 'Pre-Consensus', 'Final Consensus', 'Status', 'Approved At'].map((h) => (
+                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {[...selectedConsensus].reverse().slice(0, 10).map((c) => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <td className="py-2.5 text-gray-900">{formatPeriod(c.period)}</td>
+                    <td className="py-2.5 text-gray-700">v{c.version}</td>
+                    <td className="py-2.5 text-gray-700">{formatNumber(c.pre_consensus_qty)}</td>
+                    <td className="py-2.5 font-medium text-gray-900">{formatNumber(c.final_consensus_qty)}</td>
+                    <td className="py-2.5">
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full capitalize">{c.status}</span>
+                    </td>
+                    <td className="py-2.5 text-gray-600">{c.approved_at ? new Date(c.approved_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>
