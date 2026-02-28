@@ -235,6 +235,10 @@ export function ForecastingPage() {
 
   const forecastPointRows = dedupedForecastPoints.slice(-12)
 
+  const forecastModelUsed = dedupedForecastPoints.length > 0
+    ? dedupedForecastPoints[dedupedForecastPoints.length - 1].model_type.replace(/_/g, ' ')
+    : null
+
   const chartDataMap = new Map<string, {
     periodRaw: string
     historical_qty: number | null
@@ -442,7 +446,10 @@ export function ForecastingPage() {
 
       {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="Step 4 · Forecast Curve" subtitle="Historical + prediction with confidence interval">
+        <Card
+          title="Step 4 · Forecast Curve"
+          subtitle={`Historical + prediction with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
+        >
           {chartData.length === 0 ? (
             <div className="text-center py-10 text-gray-400 text-sm">Select a product and generate forecast to visualize trend</div>
           ) : (
