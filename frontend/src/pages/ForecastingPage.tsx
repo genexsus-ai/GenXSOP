@@ -22,8 +22,6 @@ import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Legend,
   Line,
@@ -450,17 +448,17 @@ export function ForecastingPage() {
           ) : (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                <LineChart data={chartData} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="period" tickMargin={8} />
                   <YAxis width={56} />
                   <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
                   <Legend />
-                  <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Confidence (Upper)" connectNulls={false} />
-                  <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Confidence (Lower Mask)" connectNulls={false} />
+                  <Line type="monotone" dataKey="upper_bound" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Confidence Upper" connectNulls={false} />
+                  <Line type="monotone" dataKey="lower_bound" stroke="#93c5fd" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Confidence Lower" connectNulls={false} />
                   <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Historical" connectNulls={false} />
                   <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Prediction" connectNulls={false} />
-                </AreaChart>
+                </LineChart>
               </ResponsiveContainer>
             </div>
           )}
