@@ -69,6 +69,7 @@ export function ForecastingPage() {
   const [modelComparisonFlags, setModelComparisonFlags] = useState<string[]>([])
   const [comparisonLoading, setComparisonLoading] = useState(false)
   const [comparisonError, setComparisonError] = useState<string | null>(null)
+  const [selectedBacktestModel, setSelectedBacktestModel] = useState<string>('')
   const [comparisonParams, setComparisonParams] = useState({
     test_months: 6,
     min_train_months: 6,
@@ -213,9 +214,11 @@ export function ForecastingPage() {
         min_train_months: comparisonParams.min_train_months,
       })
       setModelComparison(res.models ?? [])
+      setSelectedBacktestModel(res.models?.[0]?.model_type ?? '')
       setModelComparisonFlags(res.data_quality_flags ?? [])
     } catch {
       setModelComparison([])
+      setSelectedBacktestModel('')
       setModelComparisonFlags([])
       setComparisonError('Not enough historical actuals to run model comparison yet.')
     } finally {
@@ -515,6 +518,13 @@ export function ForecastingPage() {
   const avgMape = accuracy.length > 0
     ? accuracy.reduce((s, a) => s + a.mape, 0) / accuracy.length
     : 0
+
+  const selectedBacktestModelRow = modelComparison.find((m) => m.model_type === selectedBacktestModel) ?? modelComparison[0]
+  const backtestChartData = (selectedBacktestModelRow?.series ?? []).map((p) => ({
+    period: formatPeriod(p.period),
+    actual_qty: Number(p.actual_qty),
+    predicted_qty: Number(p.predicted_qty),
+  }))
 
   const draftPreConsensus = Math.max(
     0,
@@ -864,6 +874,40 @@ export function ForecastingPage() {
           </div>
         ) : (
           <div className="space-y-3">
+            {selectedBacktestModelRow && backtestChartData.length > 0 && (
+              <div className="rounded-lg border border-gray-100 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <p className="text-xs text-gray-600">
+                    Backtest actual vs forecasted quantities · Model: <span className="font-semibold text-gray-900">{selectedBacktestModelRow.model_type.replace(/_/g, ' ')}</span>
+                  </p>
+                  <select
+                    value={selectedBacktestModelRow.model_type}
+                    onChange={(e) => setSelectedBacktestModel(e.target.value)}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded-lg"
+                  >
+                    {modelComparison.map((m) => (
+                      <option key={m.model_type} value={m.model_type}>
+                        {m.model_type.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={backtestChartData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="period" tickMargin={8} />
+                      <YAxis width={56} />
+                      <Tooltip formatter={(v) => (typeof v === 'number' ? formatNumber(v) : '—')} />
+                      <Legend />
+                      <Line type="monotone" dataKey="actual_qty" name="Actual Qty" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls={false} />
+                      <Line type="monotone" dataKey="predicted_qty" name="Forecast Qty" stroke="#2563eb" strokeWidth={2} dot={false} connectNulls={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
             {modelComparison.map((m) => (
               <div key={`${m.rank}-${m.model_type}`} className="flex items-center gap-3">
                 <div className="flex-1 min-w-0">

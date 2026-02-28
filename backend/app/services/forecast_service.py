@@ -249,6 +249,7 @@ class ForecastService:
             test_months=test_months,
             min_train_months=min_train_months,
             models=models,
+            include_series=True,
         )
 
         ranked_rows = [
@@ -448,6 +449,7 @@ class ForecastService:
         test_months: int = 6,
         min_train_months: int = 3,
         models: Optional[List[str]] = None,
+        include_series: bool = False,
     ) -> List[dict]:
         metrics: List[dict] = []
         available_model_ids = [m["id"] for m in ForecastModelFactory.list_models()]
@@ -472,6 +474,7 @@ class ForecastService:
             hits = 0
             samples = 0
             actual_sum = 0.0
+            series_points: List[dict] = []
 
             for split in range(start, n):
                 train = df.iloc[:split]
@@ -481,6 +484,13 @@ class ForecastService:
                 abs_err = abs(err)
                 abs_errors.append(abs_err)
                 sq_errors.append(err ** 2)
+                if include_series:
+                    period = pd.Timestamp(df.iloc[split]["ds"]).date()
+                    series_points.append({
+                        "period": str(period),
+                        "actual_qty": round(actual, 4),
+                        "predicted_qty": round(pred, 4),
+                    })
                 actual_sum += abs(actual)
                 if actual != 0:
                     pct = abs_err / abs(actual)
@@ -510,6 +520,7 @@ class ForecastService:
                 "hit_rate": round(hit_rate, 4),
                 "period_count": samples,
                 "score": round(mape + (wape * 0.25), 4),
+                **({"series": series_points} if include_series else {}),
             })
 
         return sorted(metrics, key=lambda m: m["score"])

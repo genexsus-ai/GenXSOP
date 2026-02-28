@@ -351,6 +351,11 @@ export interface ForecastModelComparisonItem {
   hit_rate: number
   period_count: number
   score: number
+  series?: Array<{
+    period: string
+    actual_qty: number
+    predicted_qty: number
+  }>
 }
 
 export interface ForecastModelComparisonResponse {
