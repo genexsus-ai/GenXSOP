@@ -1198,15 +1198,6 @@ export function ForecastingPage() {
         </Card>
       )}
 
-      {(activeStage === 'stage4' && forecasts.length === 0) && (
-        <Card title="Step 4 · Forecast View" subtitle="Generate forecast first">
-          <div className="text-sm text-gray-600 mb-3">No forecast records yet for the selected product.</div>
-          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId || !canGenerate}>
-            Generate Forecast
-          </Button>
-        </Card>
-      )}
-
       {/* Generate Modal */}
       <Modal isOpen={showGenerate} onClose={() => setShowGenerate(false)} title="Generate Forecast"
         footer={
