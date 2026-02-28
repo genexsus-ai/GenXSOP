@@ -315,6 +315,24 @@ def forecast_accuracy(
     return service.get_accuracy_metrics(product_id=product_id)
 
 
+@router.get("/model-comparison")
+def forecast_model_comparison(
+    product_id: int,
+    test_months: int = Query(6, ge=1, le=24),
+    min_train_months: int = Query(6, ge=3, le=60),
+    models: Optional[List[str]] = Query(None),
+    service: ForecastService = Depends(get_forecast_service),
+    _: User = Depends(get_current_user),
+):
+    """Compare forecast model performance using historical walk-forward backtesting."""
+    return service.get_model_comparison(
+        product_id=product_id,
+        test_months=test_months,
+        min_train_months=min_train_months,
+        models=models,
+    )
+
+
 @router.get("/accuracy/drift-alerts")
 def forecast_accuracy_drift_alerts(
     threshold_pct: float = Query(10.0, ge=0.0, le=100.0),

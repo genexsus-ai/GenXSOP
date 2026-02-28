@@ -340,6 +340,28 @@ export interface ForecastDriftAlert {
   severity: 'medium' | 'high'
 }
 
+export interface ForecastModelComparisonItem {
+  rank: number
+  model_type: string
+  mape: number
+  wape: number
+  rmse: number
+  mae: number
+  bias: number
+  hit_rate: number
+  period_count: number
+  score: number
+}
+
+export interface ForecastModelComparisonResponse {
+  product_id: number
+  history_months: number
+  test_months: number
+  min_train_months: number
+  models: ForecastModelComparisonItem[]
+  data_quality_flags: string[]
+}
+
 export interface GenerateForecastResponse {
   product_id: number
   model_type?: string | null

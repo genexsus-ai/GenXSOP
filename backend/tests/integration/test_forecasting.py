@@ -36,6 +36,70 @@ def _seed_actual_history(db: Session, product_id: int, months: int = 18) -> None
 
 
 class TestForecastingIntegration:
+    def test_model_comparison_endpoint_contract(
+        self,
+        client: TestClient,
+        admin_headers: dict,
+        db: Session,
+        product,
+    ):
+        _seed_actual_history(db, product.id, months=18)
+
+        resp = client.get(
+            "/api/v1/forecasting/model-comparison",
+            params={
+                "product_id": product.id,
+                "test_months": 6,
+                "min_train_months": 6,
+                "models": ["moving_average", "exp_smoothing"],
+            },
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["product_id"] == product.id
+        assert payload["history_months"] >= 6
+        assert payload["test_months"] == 6
+        assert payload["min_train_months"] == 6
+        assert isinstance(payload.get("data_quality_flags"), list)
+        assert isinstance(payload.get("models"), list)
+        assert len(payload["models"]) > 0
+
+        first = payload["models"][0]
+        for key in [
+            "rank",
+            "model_type",
+            "mape",
+            "wape",
+            "rmse",
+            "mae",
+            "bias",
+            "hit_rate",
+            "period_count",
+            "score",
+        ]:
+            assert key in first
+
+        ranks = [row["rank"] for row in payload["models"]]
+        assert ranks == sorted(ranks)
+
+    def test_model_comparison_requires_sufficient_history(
+        self,
+        client: TestClient,
+        admin_headers: dict,
+        product,
+    ):
+        resp = client.get(
+            "/api/v1/forecasting/model-comparison",
+            params={"product_id": product.id},
+            headers=admin_headers,
+        )
+
+        assert resp.status_code == 422
+        detail = resp.json().get("detail", {})
+        assert detail.get("code") == "INSUFFICIENT_DATA"
+
     def test_generate_forecast_returns_diagnostics_contract(
         self,
         client: TestClient,

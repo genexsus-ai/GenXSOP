@@ -15,6 +15,7 @@ import type {
   ForecastAccuracy,
   ForecastConsensus,
   ForecastDriftAlert,
+  ForecastModelComparisonItem,
   GenerateForecastRequest,
   ForecastModelType,
   Product,
@@ -45,9 +46,10 @@ const MODEL_TYPES = [
 
 const FORECAST_STAGES = [
   { key: 'stage1', label: '1. Historical' },
-  { key: 'stage2', label: '2. Model Setup' },
-  { key: 'stage4', label: '3. Forecast View' },
-  { key: 'stage5', label: '4. Manage Results' },
+  { key: 'stage2', label: '2. Backtesting' },
+  { key: 'stage3', label: '3. Model Setup' },
+  { key: 'stage4', label: '4. Forecast View' },
+  { key: 'stage5', label: '5. Manage Results' },
 ] as const
 
 type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
@@ -63,6 +65,14 @@ export function ForecastingPage() {
   const [generating, setGenerating] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
   const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
+  const [modelComparison, setModelComparison] = useState<ForecastModelComparisonItem[]>([])
+  const [modelComparisonFlags, setModelComparisonFlags] = useState<string[]>([])
+  const [comparisonLoading, setComparisonLoading] = useState(false)
+  const [comparisonError, setComparisonError] = useState<string | null>(null)
+  const [comparisonParams, setComparisonParams] = useState({
+    test_months: 6,
+    min_train_months: 6,
+  })
   const [consensusRecords, setConsensusRecords] = useState<ForecastConsensus[]>([])
   const [showConsensusModal, setShowConsensusModal] = useState(false)
   const [savingConsensus, setSavingConsensus] = useState(false)
@@ -192,6 +202,36 @@ export function ForecastingPage() {
 
     loadHistoryPlans()
   }, [chartProductId, historyRangeMonths])
+
+  const runModelComparison = async (productId: number) => {
+    setComparisonLoading(true)
+    setComparisonError(null)
+    try {
+      const res = await forecastService.getModelComparison({
+        product_id: productId,
+        test_months: comparisonParams.test_months,
+        min_train_months: comparisonParams.min_train_months,
+      })
+      setModelComparison(res.models ?? [])
+      setModelComparisonFlags(res.data_quality_flags ?? [])
+    } catch {
+      setModelComparison([])
+      setModelComparisonFlags([])
+      setComparisonError('Not enough historical actuals to run model comparison yet.')
+    } finally {
+      setComparisonLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!chartProductId) {
+      setModelComparison([])
+      setModelComparisonFlags([])
+      setComparisonError(null)
+      return
+    }
+    runModelComparison(chartProductId)
+  }, [chartProductId, comparisonParams.test_months, comparisonParams.min_train_months])
 
   const handleGenerate = async () => {
     if (!form.product_id) {
@@ -675,6 +715,7 @@ export function ForecastingPage() {
   const stageEnabled: Record<ForecastStageKey, boolean> = {
     stage1: true,
     stage2: Boolean(selectedProductId),
+    stage3: Boolean(selectedProductId),
     stage4: forecasts.length > 0,
     stage5: true,
   }
@@ -683,7 +724,8 @@ export function ForecastingPage() {
     if (activeStage === stage) return 'active'
     if (!stageEnabled[stage]) return 'locked'
     if (stage === 'stage1' && selectedProductId) return 'complete'
-    if (stage === 'stage2' && selectedProductId && form.model_type && form.horizon_months) return 'complete'
+    if (stage === 'stage2' && selectedProductId && (modelComparison.length > 0 || Boolean(comparisonError))) return 'complete'
+    if (stage === 'stage3' && selectedProductId && form.model_type && form.horizon_months) return 'complete'
     if (stage === 'stage4' && forecasts.length > 0) return 'complete'
     if (stage === 'stage5') return 'ready'
     return 'ready'
@@ -760,7 +802,101 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage2' && (
-      <Card title="Step 2 · Model Setup" subtitle="Configure model inputs for forecast generation">
+      <Card title="Step 2 · Backtesting" subtitle="Compare model performance before selecting a forecasting model">
+        <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Backtest Window</label>
+            <select
+              value={comparisonParams.test_months}
+              onChange={(e) => setComparisonParams((prev) => ({ ...prev, test_months: Number(e.target.value) }))}
+              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg"
+            >
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={9}>9 months</option>
+              <option value={12}>12 months</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Minimum Train Months</label>
+            <select
+              value={comparisonParams.min_train_months}
+              onChange={(e) => setComparisonParams((prev) => ({ ...prev, min_train_months: Number(e.target.value) }))}
+              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg"
+            >
+              <option value={3}>3 months</option>
+              <option value={6}>6 months</option>
+              <option value={12}>12 months</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            <Button
+              size="sm"
+              variant="outline"
+              loading={comparisonLoading}
+              onClick={() => chartProductId && runModelComparison(chartProductId)}
+              disabled={!chartProductId}
+            >
+              Run Backtest
+            </Button>
+          </div>
+        </div>
+
+        {modelComparisonFlags.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {modelComparisonFlags.map((flag) => (
+              <span key={flag} className="text-[11px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
+                {flag.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {comparisonLoading ? (
+          <SkeletonTable rows={4} cols={4} />
+        ) : comparisonError ? (
+          <div className="text-center py-8 text-amber-700 text-sm">
+            {comparisonError}
+          </div>
+        ) : modelComparison.length === 0 ? (
+          <div className="text-center py-10 text-gray-400">
+            <p className="text-sm">No backtesting data available yet</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {modelComparison.map((m) => (
+              <div key={`${m.rank}-${m.model_type}`} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-gray-700">
+                      #{m.rank} · {m.model_type.replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      Score: {m.score.toFixed(2)} · MAPE: {formatPercent(m.mape)}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${m.mape < 10 ? 'bg-emerald-500' : m.mape < 20 ? 'bg-amber-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(100, 100 - m.mape)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500">Bias / Hit Rate</p>
+                  <p className={`text-xs font-medium ${m.bias > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                    {m.bias > 0 ? '+' : ''}{m.bias.toFixed(1)}% · {formatPercent(m.hit_rate)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      )}
+
+      {activeStage === 'stage3' && (
+      <Card title="Step 3 · Model Setup" subtitle="Configure model inputs for forecast generation">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Type</label>
@@ -974,7 +1110,7 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage4' && (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         <Card
           title="Forecast Curve"
           subtitle={`Historical + prediction + consensus with confidence interval${chartProductId ? ` · Product: ${chartProduct ? `${chartProduct.name} (${chartProduct.sku})` : `#${chartProductId}`}` : ''}${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
@@ -1003,41 +1139,6 @@ export function ForecastingPage() {
                   <Line type="monotone" dataKey="consensus_qty" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Consensus" connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
-          )}
-        </Card>
-
-        <Card title="Model Accuracy Comparison">
-          {accuracy.length === 0 ? (
-            <div className="text-center py-10 text-gray-400">
-              <p className="text-sm">No accuracy data available</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {accuracy.map((a) => (
-                <div key={`${a.product_id}-${a.model_type}`} className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-700">
-                        {a.model_type.replace(/_/g, ' ')}
-                      </span>
-                      <span className="text-xs text-gray-500">MAPE: {formatPercent(a.mape)}</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${a.mape < 10 ? 'bg-emerald-500' : a.mape < 20 ? 'bg-amber-500' : 'bg-red-500'}`}
-                        style={{ width: `${Math.min(100, 100 - a.mape)}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">Bias</p>
-                    <p className={`text-xs font-medium ${a.bias > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                      {a.bias > 0 ? '+' : ''}{a.bias.toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              ))}
             </div>
           )}
         </Card>

@@ -8,6 +8,7 @@ import type {
   ForecastRecommendationResponse,
   ForecastDiagnostics,
   ForecastDriftAlert,
+  ForecastModelComparisonResponse,
   ForecastPromoteResponse,
   ForecastModelType,
   ForecastConsensus,
@@ -181,6 +182,20 @@ export const forecastService = {
   async getDriftAlerts(params?: { threshold_pct?: number; min_points?: number }): Promise<ForecastDriftAlert[]> {
     const res = await api.get<ForecastDriftAlert[]>('/forecasting/accuracy/drift-alerts', { params })
     return res.data ?? []
+  },
+
+  async getModelComparison(params: {
+    product_id: number
+    test_months?: number
+    min_train_months?: number
+    models?: string[]
+  }): Promise<ForecastModelComparisonResponse> {
+    const res = await api.get<ForecastModelComparisonResponse>('/forecasting/model-comparison', { params })
+    return {
+      ...res.data,
+      models: [...(res.data.models ?? [])].sort((a, b) => a.rank - b.rank),
+      data_quality_flags: res.data.data_quality_flags ?? [],
+    }
   },
 
   async detectAnomalies(productId: number) {

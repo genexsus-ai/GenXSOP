@@ -223,6 +223,47 @@ class ForecastService:
             "data_quality_flags": data_quality_flags,
         }
 
+    def get_model_comparison(
+        self,
+        product_id: int,
+        test_months: int = 6,
+        min_train_months: int = 6,
+        models: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Compare model performance using walk-forward backtesting on historical actuals.
+        """
+        history = self._demand_repo.get_with_actuals(product_id)
+        if len(history) < 3:
+            raise to_http_exception(
+                InsufficientDataException(required=3, available=len(history), operation="model comparison")
+            )
+
+        df = pd.DataFrame([
+            {"ds": pd.Timestamp(h.period), "y": float(h.actual_qty)}
+            for h in history
+        ])
+
+        comparison_rows = self._run_backtests(
+            df=df,
+            test_months=test_months,
+            min_train_months=min_train_months,
+            models=models,
+        )
+
+        ranked_rows = [
+            {**row, "rank": idx + 1}
+            for idx, row in enumerate(comparison_rows)
+        ]
+        return {
+            "product_id": product_id,
+            "history_months": len(history),
+            "test_months": test_months,
+            "min_train_months": min_train_months,
+            "models": ranked_rows,
+            "data_quality_flags": self._data_quality_flags(df),
+        }
+
     def promote_forecast_results_to_demand_plan(
         self,
         product_id: int,
@@ -401,18 +442,25 @@ class ForecastService:
 
         return sorted(alerts, key=lambda a: a["degradation_pct"], reverse=True)
 
-    def _run_backtests(self, df: pd.DataFrame) -> List[dict]:
+    def _run_backtests(
+        self,
+        df: pd.DataFrame,
+        test_months: int = 6,
+        min_train_months: int = 3,
+        models: Optional[List[str]] = None,
+    ) -> List[dict]:
         metrics: List[dict] = []
-        model_ids = [m["id"] for m in ForecastModelFactory.list_models()]
+        available_model_ids = [m["id"] for m in ForecastModelFactory.list_models()]
+        model_ids = [m for m in (models or available_model_ids) if m in available_model_ids]
         n = len(df)
 
         for model_id in model_ids:
             strategy = ForecastModelFactory.create(model_id)
-            min_history = max(3, strategy.min_data_months)
+            min_history = max(3, min_train_months, strategy.min_data_months)
             if n <= min_history:
                 continue
 
-            start = max(min_history, n - 6)
+            start = max(min_history, n - max(1, test_months))
             abs_errors: List[float] = []
             sq_errors: List[float] = []
             pct_errors: List[float] = []
