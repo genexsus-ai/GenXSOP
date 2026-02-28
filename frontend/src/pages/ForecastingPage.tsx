@@ -69,7 +69,7 @@ export function ForecastingPage() {
   const [modelComparisonFlags, setModelComparisonFlags] = useState<string[]>([])
   const [comparisonLoading, setComparisonLoading] = useState(false)
   const [comparisonError, setComparisonError] = useState<string | null>(null)
-  const [backtestParameterGridText, setBacktestParameterGridText] = useState<string>('{}')
+  const [backtestParameterGridText, setBacktestParameterGridText] = useState<string>('')
   const [selectedBacktestModel, setSelectedBacktestModel] = useState<string>('')
   const [comparisonParams, setComparisonParams] = useState({
     test_months: 6,
@@ -103,7 +103,7 @@ export function ForecastingPage() {
     model_type: 'prophet',
     horizon_months: 6,
   })
-  const [generationModelParamsText, setGenerationModelParamsText] = useState<string>('{}')
+  const [generationModelParamsText, setGenerationModelParamsText] = useState<string>('')
   const [activeStage, setActiveStage] = useState<ForecastStageKey>('stage1')
 
   const parseJsonObject = (raw: string): Record<string, unknown> | undefined => {
