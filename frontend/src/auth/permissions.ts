@@ -7,6 +7,7 @@ export type AppModule =
   | 'dashboard'
   | 'demand'
   | 'supply'
+  | 'production_scheduling'
   | 'inventory'
   | 'forecasting'
   | 'scenarios'
@@ -49,6 +50,7 @@ const MODULE_ACCESS: Record<AppModule, UserRole[]> = {
 
   demand: ['admin', 'executive', 'demand_planner', 'supply_planner', 'sop_coordinator'],
   supply: ['admin', 'executive', 'supply_planner', 'sop_coordinator'],
+  production_scheduling: ['admin', 'executive', 'supply_planner', 'sop_coordinator'],
   inventory: ['admin', 'executive', 'inventory_manager', 'supply_planner', 'sop_coordinator'],
   forecasting: ['admin', 'executive', 'demand_planner', 'supply_planner', 'finance_analyst', 'sop_coordinator'],
   scenarios: ['admin', 'executive', 'demand_planner', 'supply_planner', 'finance_analyst', 'sop_coordinator'],

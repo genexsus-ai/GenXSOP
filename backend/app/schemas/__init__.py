@@ -22,3 +22,8 @@ from app.schemas.forecast_consensus import (
     ForecastConsensusApproveRequest,
     ForecastConsensusResponse,
 )
+from app.schemas.production_schedule import (
+    ProductionScheduleGenerateRequest,
+    ProductionScheduleStatusUpdateRequest,
+    ProductionScheduleResponse,
+)

@@ -9,6 +9,7 @@ from app.repositories.kpi_repository import KPIMetricRepository
 from app.repositories.product_repository import ProductRepository, CategoryRepository
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.forecast_consensus_repository import ForecastConsensusRepository
+from app.repositories.production_schedule_repository import ProductionScheduleRepository
 
 __all__ = [
     "BaseRepository",
@@ -22,4 +23,5 @@ __all__ = [
     "CategoryRepository",
     "ForecastRepository",
     "ForecastConsensusRepository",
+    "ProductionScheduleRepository",
 ]

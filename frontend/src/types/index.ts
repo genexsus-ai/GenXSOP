@@ -185,6 +185,54 @@ export interface SupplyGapAnalysisItem {
   status: string
 }
 
+// ── Production Scheduling ────────────────────────────────────────────────────
+
+export type ProductionScheduleStatus = 'draft' | 'released' | 'in_progress' | 'completed'
+
+export interface ProductionSchedule {
+  id: number
+  supply_plan_id: number
+  product_id: number
+  period: string
+  workcenter: string
+  line: string
+  shift: string
+  sequence_order: number
+  planned_qty: number
+  planned_start_at: string
+  planned_end_at: string
+  status: ProductionScheduleStatus
+  created_by?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface GenerateProductionScheduleRequest {
+  supply_plan_id: number
+  workcenters: string[]
+  lines: string[]
+  shifts: string[]
+  duration_hours_per_slot?: number
+}
+
+export interface ProductionCapacityGroupSummary {
+  workcenter: string
+  line: string
+  shift: string
+  slot_count: number
+  total_planned_qty: number
+}
+
+export interface ProductionCapacitySummary {
+  supply_plan_id: number
+  slot_count: number
+  planned_total_qty: number
+  capacity_max_qty?: number
+  utilization_pct: number
+  overloaded: boolean
+  groups: ProductionCapacityGroupSummary[]
+}
+
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 export type InventoryStatus = 'normal' | 'low' | 'critical' | 'excess'
