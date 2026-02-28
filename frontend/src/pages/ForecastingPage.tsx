@@ -974,31 +974,10 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage4' && (
-      <Card title="Forecast Context" subtitle="Current product being visualized">
-        {chartProductId ? (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <p className="text-gray-700">
-              Product:{' '}
-              <span className="font-semibold text-gray-900">
-                {chartProduct ? `${chartProduct.name} (${chartProduct.sku})` : `#${chartProductId}`}
-              </span>
-            </p>
-            <p className="text-gray-500">ID: {chartProductId}</p>
-            {selectedForecastModelType && (
-              <p className="text-gray-500">Model: {selectedForecastModelType.replace(/_/g, ' ')}</p>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">No product selected yet. Go to Step 1 or open a result from Manage Results.</p>
-        )}
-      </Card>
-      )}
-
-      {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
           title="Forecast Curve"
-          subtitle={`Historical + prediction + consensus with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
+          subtitle={`Historical + prediction + consensus with confidence interval${chartProductId ? ` · Product: ${chartProduct ? `${chartProduct.name} (${chartProduct.sku})` : `#${chartProductId}`}` : ''}${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
         >
           {bestModelDisplay && (
             <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
