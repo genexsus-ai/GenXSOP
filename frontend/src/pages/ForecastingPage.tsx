@@ -96,16 +96,30 @@ export function ForecastingPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const [fRes, aRes, cRes] = await Promise.all([
+      const [fRes, aRes, cRes] = await Promise.allSettled([
         forecastService.getResults({ page_size: 50 }),
         forecastService.getAccuracy(),
         forecastService.getConsensus(),
       ])
-      const drift = await forecastService.getDriftAlerts({ threshold_pct: 8, min_points: 6 })
-      setForecasts(fRes.items)
-      setAccuracy(aRes)
-      setConsensusRecords(cRes)
-      setDriftAlerts(drift)
+
+      if (fRes.status === 'fulfilled') {
+        setForecasts(fRes.value.items)
+      }
+
+      if (aRes.status === 'fulfilled') {
+        setAccuracy(aRes.value)
+      }
+
+      if (cRes.status === 'fulfilled') {
+        setConsensusRecords(cRes.value)
+      }
+
+      try {
+        const drift = await forecastService.getDriftAlerts({ threshold_pct: 8, min_points: 6 })
+        setDriftAlerts(drift)
+      } catch {
+        setDriftAlerts([])
+      }
     } catch {
       // handled
     } finally {
