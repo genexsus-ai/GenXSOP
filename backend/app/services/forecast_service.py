@@ -205,88 +205,7 @@ class ForecastService:
             "data_quality_flags": data_quality_flags,
         }
 
-    def run_sandbox(
-        self,
-        product_id: int,
-        horizon: int,
-        model_types: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Build a non-destructive multi-model sandbox for user experimentation.
-        """
-        history = self._demand_repo.get_with_actuals(product_id)
-        if len(history) < 3:
-            raise to_http_exception(
-                InsufficientDataException(required=3, available=len(history), operation="forecast sandbox")
-            )
-
-        df = pd.DataFrame([
-            {"ds": pd.Timestamp(h.period), "y": float(h.actual_qty)}
-            for h in history
-        ])
-
-        available_models = [m["id"] for m in ForecastModelFactory.list_models()]
-        selected_models = model_types or available_models
-        selected_models = [m for m in selected_models if m in available_models]
-        if not selected_models:
-            selected_models = available_models
-
-        options: List[Dict[str, Any]] = []
-        candidate_metrics = self._run_backtests(df)
-        metrics_map = {m["model_type"]: m for m in candidate_metrics}
-
-        for model_id in selected_models:
-            ctx = ForecastModelFactory.create_context(model_id)
-            preds = ctx.execute(df, horizon)
-            metric = metrics_map.get(model_id, {})
-            options.append({
-                "model_type": model_id,
-                "display_name": ctx.strategy.display_name,
-                "forecast": preds,
-                "metrics": metric,
-                "score": float(metric.get("score", 999999.0)),
-            })
-
-        default_model = self._select_default_model(len(history), candidate_metrics)
-        advisor_result = self._advisor.compare_options(
-            default_model=default_model,
-            history_months=len(history),
-            data_quality_flags=self._data_quality_flags(df),
-            options=[
-                {
-                    "model_type": o["model_type"],
-                    **o["metrics"],
-                    "score": o["score"],
-                }
-                for o in options
-            ],
-        )
-
-        ranked_models = [x["model_type"] for x in advisor_result.get("ranked", [])]
-        if ranked_models:
-            options = sorted(options, key=lambda o: ranked_models.index(o["model_type"]) if o["model_type"] in ranked_models else 999)
-        else:
-            options = sorted(options, key=lambda o: o["score"])
-
-        return {
-            "product_id": product_id,
-            "horizon": horizon,
-            "history_months": len(history),
-            "recommended_model": advisor_result.get("recommended_model"),
-            "advisor": {
-                "confidence": advisor_result.get("confidence"),
-                "reason": advisor_result.get("reason"),
-                "advisor_enabled": advisor_result.get("advisor_enabled"),
-                "fallback_used": advisor_result.get("fallback_used"),
-                "warnings": advisor_result.get("warnings", []),
-                "conservative_model": advisor_result.get("conservative_model"),
-                "aggressive_model": advisor_result.get("aggressive_model"),
-                "option_summaries": advisor_result.get("option_summaries", {}),
-            },
-            "options": options,
-        }
-
-    def promote_sandbox_option_to_demand_plan(
+    def promote_forecast_results_to_demand_plan(
         self,
         product_id: int,
         selected_model: str,
@@ -295,23 +214,22 @@ class ForecastService:
         notes: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Persist selected sandbox option into demand planning records.
+        Persist selected forecast model output into demand planning records.
         """
-        sandbox = self.run_sandbox(
-            product_id=product_id,
-            horizon=horizon,
-            model_types=[selected_model],
-        )
-        option = next((o for o in sandbox["options"] if o["model_type"] == selected_model), None)
-        if not option:
-            raise to_http_exception(EntityNotFoundException("SandboxOption", selected_model))
+        forecasts = self._repo.list_filtered(product_id=product_id, model_type=selected_model)
+        if not forecasts:
+            raise to_http_exception(EntityNotFoundException("ForecastResults", f"{product_id}:{selected_model}"))
+
+        selected_forecasts = sorted(forecasts, key=lambda f: f.period)
+        if horizon > 0:
+            selected_forecasts = selected_forecasts[:horizon]
 
         promoted = []
-        for row in option["forecast"]:
-            period = row["period"]
+        for row in selected_forecasts:
+            period = row.period
             existing = self._demand_repo.get_by_product_and_period(product_id=product_id, period=period)
-            qty = Decimal(str(row["predicted_qty"]))
-            note_suffix = f"[SandboxPromotion] model={selected_model}; reason={sandbox['advisor'].get('reason', '')}"
+            qty = Decimal(str(row.predicted_qty))
+            note_suffix = f"[ForecastPromotion] model={selected_model}"
             if notes:
                 note_suffix = f"{note_suffix}; user_note={notes}"
 
@@ -319,7 +237,7 @@ class ForecastService:
                 updated = self._demand_repo.update(existing, {
                     "forecast_qty": qty,
                     "consensus_qty": qty,
-                    "confidence": Decimal(str(row.get("confidence") or 0)),
+                    "confidence": Decimal(str(row.confidence or 0)),
                     "notes": f"{(existing.notes or '').strip()}\n{note_suffix}".strip(),
                     "version": existing.version + 1,
                 })
@@ -332,7 +250,7 @@ class ForecastService:
                     channel="All",
                     forecast_qty=qty,
                     consensus_qty=qty,
-                    confidence=Decimal(str(row.get("confidence") or 0)),
+                    confidence=Decimal(str(row.confidence or 0)),
                     notes=note_suffix,
                     status="draft",
                     created_by=user_id,
@@ -345,7 +263,6 @@ class ForecastService:
             "selected_model": selected_model,
             "records_promoted": len(promoted),
             "periods": [str(p.period) for p in promoted],
-            "advisor": sandbox.get("advisor", {}),
         }
 
     def get_accuracy_metrics(self, product_id: Optional[int] = None) -> List[dict]:

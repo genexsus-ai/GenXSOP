@@ -323,24 +323,8 @@ def detect_anomalies(
     return service.detect_anomalies(product_id=product_id)
 
 
-@router.post("/sandbox/run")
-def run_forecast_sandbox(
-    product_id: int,
-    horizon: int = Query(6, ge=1, le=24),
-    model_types: Optional[List[str]] = Query(default=None),
-    service: ForecastService = Depends(get_forecast_service),
-    _: User = Depends(require_roles(PLANNER_ROLES)),
-):
-    """Run multi-model forecast sandbox for side-by-side comparison."""
-    return service.run_sandbox(
-        product_id=product_id,
-        horizon=horizon,
-        model_types=model_types,
-    )
-
-
-@router.post("/sandbox/promote")
-def promote_forecast_sandbox_option(
+@router.post("/promote")
+def promote_forecast_results(
     product_id: int,
     selected_model: str,
     horizon: int = Query(6, ge=1, le=24),
@@ -348,8 +332,8 @@ def promote_forecast_sandbox_option(
     service: ForecastService = Depends(get_forecast_service),
     current_user: User = Depends(require_roles(PLANNER_ROLES)),
 ):
-    """Promote selected sandbox option to demand plan records."""
-    return service.promote_sandbox_option_to_demand_plan(
+    """Promote selected forecast model results to demand plan records."""
+    return service.promote_forecast_results_to_demand_plan(
         product_id=product_id,
         selected_model=selected_model,
         horizon=horizon,

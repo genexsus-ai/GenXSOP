@@ -216,25 +216,24 @@ API:
 
 - `POST /api/v1/forecasting/generate?product_id=1&horizon=6&model_type=prophet`
 
-### Run sandbox comparison (recommended)
+### Promote forecast result to Demand Plan
 
-Use sandbox when you want to compare multiple forecasting methods before committing to demand planning.
+Use **Manage Forecast Results** to select a model per product and promote it into Demand Planning.
 
-1. Enter Product + Horizon.
-2. Click **Run Sandbox**.
-3. Review side-by-side model metrics and AI recommendation reason.
-4. Select preferred model and click **Promote to Demand Plan**.
+1. Go to **Forecasting → Manage Results**.
+2. Locate the product + model row.
+3. Click **Promote**.
+4. Confirm action.
 
-APIs:
+API:
 
-- `POST /api/v1/forecasting/sandbox/run?product_id=1&horizon=6`
-- `POST /api/v1/forecasting/sandbox/promote?product_id=1&selected_model=arima&horizon=6`
+- `POST /api/v1/forecasting/promote?product_id=1&selected_model=arima&horizon=6`
 
 What promotion does:
 
 - Applies selected model output into demand plans for the forecast periods.
 - Preserves planner control (human-in-the-loop decision).
-- Stores decision context in plan notes/version history.
+- Stores promotion context in plan notes/version history.
 
 ### View results
 

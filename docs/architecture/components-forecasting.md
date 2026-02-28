@@ -4,7 +4,7 @@ This document zooms into the **Forecasting** domain and shows the major backend 
 
 > Why forecasting? It demonstrates GenXSOP’s core patterns clearly: **Router → Service → Repository**, plus **Strategy/Factory** for ML and **EventBus** for audit.
 
-This component now also supports a **sandbox-first planning flow** where planners compare multiple model outputs, get LLM-assisted recommendations, and explicitly promote a selected option into demand plans.
+This component supports promotion of selected forecast model results into demand plans.
 
 ## Component diagram
 
@@ -123,7 +123,7 @@ sequenceDiagram
 - Runs `AnomalyDetector.detect(values)`.
 - Returns indices/periods considered anomalous.
 
-### Sandbox compare + promote (`POST /api/v1/forecasting/sandbox/run`, `POST /api/v1/forecasting/sandbox/promote`)
+### Promote forecast results (`POST /api/v1/forecasting/promote`)
 
 ```mermaid
 sequenceDiagram
@@ -136,24 +136,9 @@ sequenceDiagram
   participant C as ForecastContext
   participant A as ForecastAdvisorService
 
-  SPA->>R: POST /forecasting/sandbox/run
-  R->>S: run_sandbox(product_id, horizon, model_types?)
-  S->>DR: get_with_actuals(product_id)
-  DR-->>S: demand history
-  loop for each candidate model
-    S->>F: create_context(model)
-    F-->>S: ForecastContext(strategy)
-    S->>C: execute(df, horizon)
-    C-->>S: model predictions
-  end
-  S->>A: compare_options(default_model, flags, options)
-  A-->>S: ranked options + recommendation reason
-  S-->>R: sandbox payload (options + advisor)
-  R-->>SPA: JSON
-
-  SPA->>R: POST /forecasting/sandbox/promote
-  R->>S: promote_sandbox_option_to_demand_plan(...)
-  S->>DR: upsert demand plans for selected option periods
+  SPA->>R: POST /forecasting/promote
+  R->>S: promote_forecast_results_to_demand_plan(...)
+  S->>DR: upsert demand plans for selected forecast periods
   S-->>R: promotion summary
   R-->>SPA: JSON
 ```
@@ -163,5 +148,4 @@ sequenceDiagram
 - **Strategy interface** (`BaseForecastStrategy`) is the unit of extensibility.
 - The **Factory registry** enables adding new models without changing service code.
 - Publishing `ForecastGeneratedEvent` enables audit/telemetry without coupling.
-- Sandbox flow introduces a planner-controlled, non-destructive experimentation step before demand plan adoption.
 - LLM recommendations remain advisory with deterministic fallback to scored model ranking.

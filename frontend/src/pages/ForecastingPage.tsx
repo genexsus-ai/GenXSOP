@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Eye, Play, TrendingUp, Target, Trash2 } from 'lucide-react'
+import { AlertTriangle, Brain, Eye, Play, TrendingUp, Target, Trash2, Upload } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { demandService } from '@/services/demandService'
 import { productService } from '@/services/productService'
@@ -15,6 +15,7 @@ import type {
   ForecastAccuracy,
   ForecastDriftAlert,
   GenerateForecastRequest,
+  ForecastModelType,
   Product,
   DemandPlan,
 } from '@/types'
@@ -228,6 +229,20 @@ export function ForecastingPage() {
     setLastGeneratedProductId(productId)
     setSelectedForecastModelType(modelType)
     setActiveStage('stage4')
+  }
+
+  const handlePromoteForecastResult = async (productId: number, modelType: string) => {
+    if (!confirm(`Promote model ${modelType.replace(/_/g, ' ')} for product #${productId} to Demand Plan?`)) return
+    try {
+      const res = await forecastService.promoteForecastResults({
+        product_id: productId,
+        selected_model: modelType as ForecastModelType,
+        horizon_months: form.horizon_months ?? 6,
+      })
+      toast.success(`Promoted ${res.records_promoted} period(s) to Demand Plan`)
+    } catch {
+      // handled
+    }
   }
 
   const avgMape = accuracy.length > 0
@@ -716,6 +731,14 @@ export function ForecastingPage() {
                           title="View this forecast in Forecast View"
                         >
                           <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handlePromoteForecastResult(g.product_id, g.model_type)}
+                          className="p-1.5 rounded text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                          title="Promote this forecast model to Demand Plan"
+                          disabled={!canGenerate}
+                        >
+                          <Upload className="h-3.5 w-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteForecastGroup(g.product_id, g.product_name)}

@@ -157,7 +157,7 @@ class ForecastAdvisorService:
         data_quality_flags: List[str],
         options: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Rank sandbox options and return recommendation narrative."""
+        """Rank forecast model options and return recommendation narrative."""
         if not options:
             return {
                 "recommended_model": default_model,
@@ -228,7 +228,7 @@ class ForecastAdvisorService:
         from genxai import AgentConfig, AgentRuntime, AssistantAgent
 
         cfg = AgentConfig(
-            role="Forecast Sandbox Comparator",
+            role="Forecast Model Comparator",
             goal="Rank candidate forecasting options and explain tradeoffs for demand planners.",
             backstory="You are a senior S&OP advisor balancing service level, inventory risk, and forecast accuracy.",
             llm_provider="openai",
@@ -238,11 +238,11 @@ class ForecastAdvisorService:
             max_iterations=2,
             verbose=False,
         )
-        agent = AssistantAgent(id="forecast-sandbox-comparator", config=cfg)
+        agent = AssistantAgent(id="forecast-model-comparator", config=cfg)
         runtime = AgentRuntime(agent=agent, openai_api_key=settings.OPENAI_API_KEY)
 
         task = (
-            "You are comparing sandbox forecast options. Respond ONLY JSON with keys: "
+            "You are comparing forecast model options. Respond ONLY JSON with keys: "
             "recommended_model (string), confidence (0..1), reason (string), "
             "conservative_model (string), aggressive_model (string), option_summaries (object model_id->string). "
             f"Default model if uncertain: {default_model}. "
