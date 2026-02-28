@@ -25,6 +25,17 @@ class SOPCycleCreate(SOPCycleBase):
 
 class SOPCycleUpdate(BaseModel):
     cycle_name: Optional[str] = None
+    period: Optional[date] = None
+    step_1_due_date: Optional[date] = None
+    step_1_owner_id: Optional[int] = None
+    step_2_due_date: Optional[date] = None
+    step_2_owner_id: Optional[int] = None
+    step_3_due_date: Optional[date] = None
+    step_3_owner_id: Optional[int] = None
+    step_4_due_date: Optional[date] = None
+    step_4_owner_id: Optional[int] = None
+    step_5_due_date: Optional[date] = None
+    step_5_owner_id: Optional[int] = None
     notes: Optional[str] = None
     decisions: Optional[str] = None
     action_items: Optional[str] = None

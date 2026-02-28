@@ -429,10 +429,33 @@ export interface CreateSOPCycleRequest {
   cycle_name: string
   period: string
   step_1_due_date?: string
+  step_1_owner_id?: number
   step_2_due_date?: string
+  step_2_owner_id?: number
   step_3_due_date?: string
+  step_3_owner_id?: number
   step_4_due_date?: string
+  step_4_owner_id?: number
   step_5_due_date?: string
+  step_5_owner_id?: number
+  notes?: string
+}
+
+export interface UpdateSOPCycleRequest {
+  cycle_name?: string
+  period?: string
+  step_1_due_date?: string
+  step_1_owner_id?: number
+  step_2_due_date?: string
+  step_2_owner_id?: number
+  step_3_due_date?: string
+  step_3_owner_id?: number
+  step_4_due_date?: string
+  step_4_owner_id?: number
+  step_5_due_date?: string
+  step_5_owner_id?: number
+  decisions?: string
+  action_items?: string
   notes?: string
 }
 
