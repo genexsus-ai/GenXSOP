@@ -244,6 +244,9 @@ export function ForecastingPage() {
   const chartProduct = chartProductId != null
     ? products.find((p) => Number(p.id) === Number(chartProductId))
     : undefined
+  const historicalSelectedProduct = selectedProductId != null
+    ? products.find((p) => Number(p.id) === Number(selectedProductId))
+    : undefined
 
   const fallbackRunAuditId = [...forecasts]
     .filter((f) => {
@@ -332,14 +335,14 @@ export function ForecastingPage() {
   )
 
   useEffect(() => {
-    if (!chartProductId) {
+    if (!selectedProductId) {
       setModelComparison([])
       setModelComparisonFlags([])
       setComparisonError(null)
       return
     }
-    runModelComparison(chartProductId)
-  }, [chartProductId, comparisonParams.test_months, comparisonParams.min_train_months])
+    runModelComparison(selectedProductId)
+  }, [selectedProductId, comparisonParams.test_months, comparisonParams.min_train_months])
 
   const handleGenerate = async () => {
     if (!form.product_id) {
@@ -931,6 +934,20 @@ export function ForecastingPage() {
       <Card title="Step 2 · Backtesting" subtitle="Compare model performance before selecting a forecasting model">
         <div className="mb-3 grid grid-cols-1 md:grid-cols-3 gap-2">
           <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Product</label>
+            <input
+              type="text"
+              readOnly
+              value={historicalSelectedProduct
+                ? `${historicalSelectedProduct.name} (${historicalSelectedProduct.sku})`
+                : selectedProductId
+                  ? `#${selectedProductId}`
+                  : ''}
+              placeholder="Select product in Step 1"
+              className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-gray-50 text-gray-700"
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Backtest Window</label>
             <select
               value={comparisonParams.test_months}
@@ -960,8 +977,8 @@ export function ForecastingPage() {
               size="sm"
               variant="outline"
               loading={comparisonLoading}
-              onClick={() => chartProductId && runModelComparison(chartProductId)}
-              disabled={!chartProductId}
+              onClick={() => selectedProductId && runModelComparison(selectedProductId)}
+              disabled={!selectedProductId}
             >
               Run Backtest
             </Button>
