@@ -246,27 +246,6 @@ export function ForecastingPage() {
     }
   }
 
-  const groupedForecasts = Array.from(
-    forecasts.reduce((acc, f) => {
-      const key = f.product_id
-      if (!acc.has(key)) acc.set(key, [])
-      acc.get(key)!.push(f)
-      return acc
-    }, new Map<number, Forecast[]>()),
-  ).map(([product_id, items]) => {
-    const sorted = [...items].sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
-    const sample = sorted[0]
-    return {
-      product_id,
-      product_name: sample?.product?.name ?? `#${product_id}`,
-      count: sorted.length,
-      period_from: sorted[0]?.period,
-      period_to: sorted[sorted.length - 1]?.period,
-      latest_model: sorted[sorted.length - 1]?.model_type,
-    }
-  })
-    .sort((a, b) => a.product_name.localeCompare(b.product_name))
-
   const groupedForecastModels = Array.from(
     forecasts.reduce((acc, f) => {
       const key = `${f.product_id}::${f.model_type}`
@@ -1018,7 +997,7 @@ export function ForecastingPage() {
       {activeStage === 'stage4' && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
-          title="Step 4 · Forecast Curve"
+          title="Forecast Curve"
           subtitle={`Historical + prediction + consensus with confidence interval${forecastModelUsed ? ` · Model: ${forecastModelUsed}` : ''}`}
         >
           {bestModelDisplay && (
@@ -1084,48 +1063,6 @@ export function ForecastingPage() {
           )}
         </Card>
       </div>
-      )}
-
-      {activeStage === 'stage4' && (
-      <Card title="Recent Forecast Results" subtitle="Latest generated records by product">
-        {loading ? (
-          <SkeletonTable rows={6} cols={4} />
-        ) : forecasts.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            <p className="text-sm">No forecast results available yet</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  {['Product', 'Periods', 'Latest Model', 'Count'].map((h) => (
-                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {groupedForecasts.slice(0, 10).map((g) => (
-                  <tr key={`stage4-${g.product_id}`} className="hover:bg-gray-50">
-                    <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
-                    <td className="py-2.5 text-gray-600 pr-3">
-                      {g.period_from && g.period_to
-                        ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
-                        : '—'}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                        {g.latest_model?.replace(/_/g, ' ') ?? '—'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
       )}
 
       {activeStage === 'stage4' && (
