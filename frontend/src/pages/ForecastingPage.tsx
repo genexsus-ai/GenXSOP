@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Brain, Play, Sparkles, TrendingUp, Target, Trash2 } from 'lucide-react'
+import { AlertTriangle, Brain, Play, TrendingUp, Target, Trash2 } from 'lucide-react'
 import { forecastService } from '@/services/forecastService'
 import { demandService } from '@/services/demandService'
 import { productService } from '@/services/productService'
@@ -13,10 +13,7 @@ import { formatPeriod, formatNumber, formatPercent } from '@/utils/formatters'
 import type {
   Forecast,
   ForecastAccuracy,
-  ForecastDiagnostics,
   ForecastDriftAlert,
-  ForecastModelType,
-  ForecastSandboxResponse,
   GenerateForecastRequest,
   Product,
   DemandPlan,
@@ -49,9 +46,8 @@ const MODEL_TYPES = [
 const FORECAST_STAGES = [
   { key: 'stage1', label: '1. Historical' },
   { key: 'stage2', label: '2. Model Setup' },
-  { key: 'stage3', label: '3. Sandbox' },
-  { key: 'stage4', label: '4. Forecast View' },
-  { key: 'stage5', label: '5. Manage Results' },
+  { key: 'stage4', label: '3. Forecast View' },
+  { key: 'stage5', label: '4. Manage Results' },
 ] as const
 
 type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
@@ -64,15 +60,12 @@ export function ForecastingPage() {
   const [accuracy, setAccuracy] = useState<ForecastAccuracy[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [recommending, setRecommending] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
-  const [diagnostics, setDiagnostics] = useState<ForecastDiagnostics | null>(null)
   const [driftAlerts, setDriftAlerts] = useState<ForecastDriftAlert[]>([])
-  const [sandbox, setSandbox] = useState<ForecastSandboxResponse | null>(null)
-  const [runningSandbox, setRunningSandbox] = useState(false)
-  const [promotingModel, setPromotingModel] = useState<ForecastModelType | null>(null)
+  const [latestGeneratedForecasts, setLatestGeneratedForecasts] = useState<Forecast[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined)
+  const [lastGeneratedProductId, setLastGeneratedProductId] = useState<number | undefined>(undefined)
   const [historyRangeMonths, setHistoryRangeMonths] = useState(24)
   const [historyPlans, setHistoryPlans] = useState<DemandPlan[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -115,7 +108,7 @@ export function ForecastingPage() {
     loadProducts()
   }, [])
 
-  const chartProductId = selectedProductId ?? form.product_id ?? forecasts[0]?.product_id
+  const chartProductId = lastGeneratedProductId ?? selectedProductId ?? form.product_id ?? forecasts[0]?.product_id
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, product_id: selectedProductId }))
@@ -155,88 +148,21 @@ export function ForecastingPage() {
       toast.error('Please enter a product ID')
       return
     }
+    const generatedProductId = form.product_id
     setGenerating(true)
     try {
-      const result = await forecastService.generateForecast(form as GenerateForecastRequest)
-      setDiagnostics(result.diagnostics ?? null)
+      const generated = await forecastService.generateForecast(form as GenerateForecastRequest)
+      setLatestGeneratedForecasts(generated.forecasts ?? [])
       toast.success('Forecast generated successfully')
       setShowGenerate(false)
-      load()
+      setSelectedProductId(generatedProductId)
+      setLastGeneratedProductId(generatedProductId)
+      await load()
+      setActiveStage('stage4')
     } catch {
       // handled
     } finally {
       setGenerating(false)
-    }
-  }
-
-  const handleRecommend = async () => {
-    if (!form.product_id) {
-      toast.error('Please enter a product ID')
-      setShowGenerate(true)
-      return
-    }
-
-    setRecommending(true)
-    try {
-      const result = await forecastService.getRecommendation({
-        product_id: form.product_id,
-        model_type: form.model_type,
-      })
-      const diagnostics = result.diagnostics ?? null
-      setDiagnostics(diagnostics)
-
-      if (diagnostics?.selected_model) {
-        setForm((prev) => ({
-          ...prev,
-          model_type: diagnostics.selected_model as GenerateForecastRequest['model_type'],
-        }))
-      }
-
-      toast.success('Recommendation received')
-    } catch {
-      // handled
-    } finally {
-      setRecommending(false)
-    }
-  }
-
-  const handleRunSandbox = async () => {
-    if (!form.product_id) {
-      toast.error('Please enter a product ID')
-      setShowGenerate(true)
-      return
-    }
-
-    setRunningSandbox(true)
-    try {
-      const result = await forecastService.runSandbox({
-        product_id: form.product_id,
-        horizon_months: form.horizon_months,
-      })
-      setSandbox(result)
-      toast.success('Sandbox generated')
-    } catch {
-      // handled
-    } finally {
-      setRunningSandbox(false)
-    }
-  }
-
-  const handlePromote = async (model: ForecastModelType) => {
-    if (!form.product_id) return
-    setPromotingModel(model)
-    try {
-      const result = await forecastService.promoteSandboxOption({
-        product_id: form.product_id,
-        selected_model: model,
-        horizon_months: form.horizon_months,
-      })
-      toast.success(`Promoted ${result.records_promoted} demand plan records`) 
-      await load()
-    } catch {
-      // handled
-    } finally {
-      setPromotingModel(null)
     }
   }
 
@@ -287,32 +213,71 @@ export function ForecastingPage() {
 
   const historicalSeries = historyPlans.map((p) => ({
     period: p.period,
-    historical_qty: Number(p.actual_qty ?? p.consensus_qty ?? p.forecast_qty ?? 0),
+    historical_qty:
+      p.actual_qty != null
+        ? Number(p.actual_qty)
+        : p.consensus_qty != null
+          ? Number(p.consensus_qty)
+          : p.forecast_qty != null
+            ? Number(p.forecast_qty)
+            : null,
   }))
 
-  const forecastPoints = [...forecasts]
-    .filter((f) => !chartProductId || f.product_id === chartProductId)
+  const forecastPoints = [...latestGeneratedForecasts, ...forecasts]
+    .filter((f) => !chartProductId || Number(f.product_id) === Number(chartProductId))
     .sort((a, b) => new Date(a.period).getTime() - new Date(b.period).getTime())
 
-  const chartData = Array.from(
-    new Set([
-      ...historicalSeries.map((h) => h.period),
-      ...forecastPoints.map((f) => f.period),
-    ]),
-  )
-    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-    .map((period) => {
-      const historical = historicalSeries.find((h) => h.period === period)
-      const forecast = forecastPoints.find((f) => f.period === period)
+  const dedupedForecastPoints = Array.from(
+    forecastPoints.reduce((acc, point) => {
+      const monthKey = point.period.slice(0, 7)
+      if (!acc.has(monthKey)) acc.set(monthKey, point)
+      return acc
+    }, new Map<string, Forecast>()),
+  ).map(([, v]) => v)
 
-      return {
-        period: formatPeriod(period),
-        historical_qty: historical?.historical_qty ?? null,
-        prediction_qty: forecast?.predicted_qty ?? null,
-        lower_bound: forecast?.lower_bound ?? null,
-        upper_bound: forecast?.upper_bound ?? null,
-      }
+  const forecastPointRows = dedupedForecastPoints.slice(-12)
+
+  const chartDataMap = new Map<string, {
+    periodRaw: string
+    historical_qty: number | null
+    prediction_qty: number | null
+    lower_bound: number | null
+    upper_bound: number | null
+  }>()
+
+  historicalSeries.forEach((h) => {
+    const key = h.period.slice(0, 7)
+    const current = chartDataMap.get(key)
+    chartDataMap.set(key, {
+      periodRaw: current?.periodRaw ?? h.period,
+      historical_qty: h.historical_qty,
+      prediction_qty: current?.prediction_qty ?? null,
+      lower_bound: current?.lower_bound ?? null,
+      upper_bound: current?.upper_bound ?? null,
     })
+  })
+
+  dedupedForecastPoints.forEach((f) => {
+    const key = f.period.slice(0, 7)
+    const current = chartDataMap.get(key)
+    chartDataMap.set(key, {
+      periodRaw: f.period,
+      historical_qty: current?.historical_qty ?? null,
+      prediction_qty: f.predicted_qty != null ? Number(f.predicted_qty) : null,
+      lower_bound: f.lower_bound != null ? Number(f.lower_bound) : null,
+      upper_bound: f.upper_bound != null ? Number(f.upper_bound) : null,
+    })
+  })
+
+  const chartData = Array.from(chartDataMap.values())
+    .sort((a, b) => new Date(a.periodRaw).getTime() - new Date(b.periodRaw).getTime())
+    .map((row) => ({
+      period: formatPeriod(row.periodRaw),
+      historical_qty: row.historical_qty,
+      prediction_qty: row.prediction_qty,
+      lower_bound: row.lower_bound,
+      upper_bound: row.upper_bound,
+    }))
 
   const accuracyChartData = [...accuracy]
     .sort((a, b) => a.mape - b.mape)
@@ -326,7 +291,6 @@ export function ForecastingPage() {
   const stageEnabled: Record<ForecastStageKey, boolean> = {
     stage1: true,
     stage2: Boolean(selectedProductId),
-    stage3: Boolean(selectedProductId),
     stage4: forecasts.length > 0,
     stage5: true,
   }
@@ -335,8 +299,7 @@ export function ForecastingPage() {
     if (activeStage === stage) return 'active'
     if (!stageEnabled[stage]) return 'locked'
     if (stage === 'stage1' && selectedProductId) return 'complete'
-    if (stage === 'stage2' && diagnostics) return 'complete'
-    if (stage === 'stage3' && sandbox) return 'complete'
+    if (stage === 'stage2' && selectedProductId && form.model_type && form.horizon_months) return 'complete'
     if (stage === 'stage4' && forecasts.length > 0) return 'complete'
     if (stage === 'stage5') return 'ready'
     return 'ready'
@@ -350,17 +313,9 @@ export function ForecastingPage() {
           <p className="text-sm text-gray-500 mt-0.5">ML-powered demand forecasting</p>
         </div>
         {canGenerate && (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" icon={<Sparkles />} loading={recommending} onClick={handleRecommend}>
-              Get Recommendation
-            </Button>
-            <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox}>
-              Run Sandbox
-            </Button>
-            <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId}>
-              Generate Forecast
-            </Button>
-          </div>
+          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId}>
+            Generate Forecast
+          </Button>
         )}
       </div>
 
@@ -426,7 +381,7 @@ export function ForecastingPage() {
       )}
 
       {activeStage === 'stage2' && (
-      <Card title="Step 2 · Model Setup" subtitle="Configure model inputs and get advisor recommendation">
+      <Card title="Step 2 · Model Setup" subtitle="Configure model inputs for forecast generation">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1.5">Model Type</label>
@@ -446,12 +401,6 @@ export function ForecastingPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" icon={<Sparkles />} loading={recommending} onClick={handleRecommend} disabled={!selectedProductId || !canGenerate}>
-            Get Recommendation
-          </Button>
-          <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox} disabled={!selectedProductId || !canGenerate}>
-            Run Sandbox
-          </Button>
           <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId || !canGenerate}>
             Generate Forecast
           </Button>
@@ -459,26 +408,7 @@ export function ForecastingPage() {
       </Card>
       )}
 
-      {activeStage === 'stage2' && diagnostics && (
-      <Card title="AI Advisor Decision" subtitle="GenXAI model recommendation diagnostics">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500">Selected Model</p>
-            <p className="font-semibold text-gray-900">{diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Advisor Confidence</p>
-            <p className="font-semibold text-gray-900">{formatPercent((diagnostics.advisor_confidence ?? 0) * 100, 0)}</p>
-          </div>
-          <div className="md:col-span-2">
-            <p className="text-gray-500">Reason</p>
-            <p className="text-gray-800">{diagnostics.selection_reason ?? 'No recommendation details.'}</p>
-          </div>
-        </div>
-      </Card>
-      )}
-
-      {activeStage === 'stage3' && driftAlerts.length > 0 && (
+      {activeStage === 'stage4' && driftAlerts.length > 0 && (
         <Card title="Forecast Drift Alerts" subtitle="Month-over-month accuracy degradation detected">
           <div className="space-y-2">
             {driftAlerts.slice(0, 5).map((a, idx) => (
@@ -494,47 +424,6 @@ export function ForecastingPage() {
                 </span>
               </div>
             ))}
-          </div>
-        </Card>
-      )}
-
-      {activeStage === 'stage3' && sandbox && (
-        <Card title="Forecast Sandbox" subtitle="Compare candidate models and promote preferred result to demand planning">
-          <div className="mb-3 text-sm text-gray-700">
-            <span className="font-medium">Recommended:</span> {sandbox.recommended_model?.replace(/_/g, ' ') ?? '—'} ·{' '}
-            <span className="font-medium">Reason:</span> {sandbox.advisor?.reason ?? '—'}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  {['Model', 'Score', 'MAPE', 'WAPE', 'Hit Rate', 'Action'].map((h) => (
-                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {sandbox.options.map((o) => (
-                  <tr key={o.model_type}>
-                    <td className="py-2.5 font-medium text-gray-900">{o.display_name}</td>
-                    <td className="py-2.5">{o.score?.toFixed?.(2) ?? '—'}</td>
-                    <td className="py-2.5">{o.metrics?.mape != null ? formatPercent(o.metrics.mape) : '—'}</td>
-                    <td className="py-2.5">{o.metrics?.wape != null ? formatPercent(o.metrics.wape) : '—'}</td>
-                    <td className="py-2.5">{o.metrics?.hit_rate != null ? formatPercent(o.metrics.hit_rate) : '—'}</td>
-                    <td className="py-2.5">
-                      <Button
-                        size="sm"
-                        loading={promotingModel === o.model_type}
-                        onClick={() => handlePromote(o.model_type)}
-                        disabled={!canGenerate}
-                      >
-                        Promote to Demand Plan
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </Card>
       )}
@@ -569,8 +458,8 @@ export function ForecastingPage() {
                   <Legend />
                   <Area type="monotone" dataKey="upper_bound" stroke="none" fill="#93c5fd" fillOpacity={0.25} name="Confidence (Upper)" connectNulls={false} />
                   <Area type="monotone" dataKey="lower_bound" stroke="none" fill="#ffffff" fillOpacity={1} name="Confidence (Lower Mask)" connectNulls={false} />
-                  <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={false} name="Historical" connectNulls={false} />
-                  <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={false} name="Prediction" connectNulls={false} />
+                  <Line type="monotone" dataKey="historical_qty" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Historical" connectNulls={false} />
+                  <Line type="monotone" dataKey="prediction_qty" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 4 }} name="Prediction" connectNulls={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -612,6 +501,81 @@ export function ForecastingPage() {
           )}
         </Card>
       </div>
+      )}
+
+      {activeStage === 'stage4' && (
+      <Card title="Recent Forecast Results" subtitle="Latest generated records by product">
+        {loading ? (
+          <SkeletonTable rows={6} cols={4} />
+        ) : forecasts.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <p className="text-sm">No forecast results available yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Product', 'Periods', 'Latest Model', 'Count'].map((h) => (
+                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {groupedForecasts.slice(0, 10).map((g) => (
+                  <tr key={`stage4-${g.product_id}`} className="hover:bg-gray-50">
+                    <td className="py-2.5 font-medium text-gray-900 pr-3">{g.product_name}</td>
+                    <td className="py-2.5 text-gray-600 pr-3">
+                      {g.period_from && g.period_to
+                        ? `${formatPeriod(g.period_from)} → ${formatPeriod(g.period_to)}`
+                        : '—'}
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+                        {g.latest_model?.replace(/_/g, ' ') ?? '—'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 tabular-nums pr-3">{g.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      )}
+
+      {activeStage === 'stage4' && (
+      <Card title="Forecast Point Details" subtitle="Historical and predicted points for selected/generated product">
+        {forecastPointRows.length === 0 ? (
+          <div className="text-center py-8 text-gray-400">
+            <p className="text-sm">No forecast points available for this product yet</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {['Period', 'Predicted', 'Lower', 'Upper', 'Model'].map((h) => (
+                    <th key={h} className="text-left pb-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {forecastPointRows.map((p) => (
+                  <tr key={`point-${p.id}`} className="hover:bg-gray-50">
+                    <td className="py-2.5 text-gray-900">{formatPeriod(p.period)}</td>
+                    <td className="py-2.5 text-gray-700">{formatNumber(Number(p.predicted_qty ?? 0))}</td>
+                    <td className="py-2.5 text-gray-600">{p.lower_bound != null ? formatNumber(Number(p.lower_bound)) : '—'}</td>
+                    <td className="py-2.5 text-gray-600">{p.upper_bound != null ? formatNumber(Number(p.upper_bound)) : '—'}</td>
+                    <td className="py-2.5 text-gray-600">{p.model_type.replace(/_/g, ' ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
       )}
 
       {activeStage === 'stage5' && (
@@ -667,15 +631,6 @@ export function ForecastingPage() {
       </Card>
       )}
 
-      {(activeStage === 'stage3' && !sandbox && selectedProductId) && (
-        <Card title="Step 3 · Sandbox" subtitle="Run sandbox to compare candidate models">
-          <div className="text-sm text-gray-600 mb-3">No sandbox run yet for this product.</div>
-          <Button variant="outline" icon={<Brain />} loading={runningSandbox} onClick={handleRunSandbox} disabled={!canGenerate}>
-            Run Sandbox
-          </Button>
-        </Card>
-      )}
-
       {(activeStage !== 'stage1' && !selectedProductId) && (
         <Card title="Stage Locked" subtitle="Select a product in Stage 1 first">
           <p className="text-sm text-gray-500">Please go to Stage 1 and select a product to continue.</p>
@@ -696,12 +651,6 @@ export function ForecastingPage() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowGenerate(false)}>Cancel</Button>
-            <Button variant="outline" loading={recommending} onClick={handleRecommend} icon={<Sparkles />} disabled={!canGenerate}>
-              Get Recommendation
-            </Button>
-            <Button variant="outline" loading={runningSandbox} onClick={handleRunSandbox} icon={<Brain />} disabled={!canGenerate}>
-              Run Sandbox
-            </Button>
             <Button loading={generating} onClick={handleGenerate} icon={<Brain />} disabled={!canGenerate}>
               Generate
             </Button>
@@ -737,18 +686,6 @@ export function ForecastingPage() {
               <span>1 month</span><span>24 months</span>
             </div>
           </div>
-
-          {diagnostics && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-1">Latest Recommendation</p>
-              <p className="text-sm text-blue-900">
-                <span className="font-medium">Model:</span> {diagnostics.selected_model?.replace(/_/g, ' ') ?? '—'}
-              </p>
-              <p className="text-xs text-blue-800 mt-1">
-                {diagnostics.selection_reason ?? 'No recommendation details.'}
-              </p>
-            </div>
-          )}
         </div>
       </Modal>
     </div>

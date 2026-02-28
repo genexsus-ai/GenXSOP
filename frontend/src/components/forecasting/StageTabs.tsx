@@ -1,21 +1,19 @@
-type ForecastStageKey = 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5'
-
 type StageStatus = 'complete' | 'active' | 'locked' | 'ready'
 
-type Stage = {
-  key: ForecastStageKey
+type Stage<K extends string = string> = {
+  key: K
   label: string
 }
 
-type StageTabsProps = {
-  stages: readonly Stage[]
-  activeStage: ForecastStageKey
-  stageEnabled: Record<ForecastStageKey, boolean>
-  getStatus: (stage: ForecastStageKey) => StageStatus
-  onSelect: (stage: ForecastStageKey) => void
+type StageTabsProps<K extends string = string> = {
+  stages: readonly Stage<K>[]
+  activeStage: K
+  stageEnabled: Record<K, boolean>
+  getStatus: (stage: K) => StageStatus
+  onSelect: (stage: K) => void
 }
 
-export function StageTabs({ stages, activeStage, stageEnabled, getStatus, onSelect }: StageTabsProps) {
+export function StageTabs<K extends string>({ stages, activeStage, stageEnabled, getStatus, onSelect }: StageTabsProps<K>) {
   return (
     <div className="border-b border-gray-200">
       <nav className="-mb-px flex flex-wrap gap-2">
