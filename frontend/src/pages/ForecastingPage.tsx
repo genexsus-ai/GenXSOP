@@ -314,11 +314,6 @@ export function ForecastingPage() {
           <h1 className="text-xl font-bold text-gray-900">AI Forecasting</h1>
           <p className="text-sm text-gray-500 mt-0.5">ML-powered demand forecasting</p>
         </div>
-        {canGenerate && (
-          <Button icon={<Play />} onClick={() => setShowGenerate(true)} disabled={!selectedProductId}>
-            Generate Forecast
-          </Button>
-        )}
       </div>
 
       <StageTabs
