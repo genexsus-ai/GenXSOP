@@ -54,6 +54,32 @@ const FORECAST_STAGES = [
   { key: 'stage5', label: '5. Manage Results' },
 ] as const
 
+const PARAMETER_GRID_EXAMPLE = `{
+  "moving_average": [
+    { "window": 3 },
+    { "window": 6 }
+  ],
+  "ewma": [
+    { "alpha": 0.2 },
+    { "alpha": 0.5 }
+  ],
+  "exp_smoothing": [
+    { "alpha": 0.3, "beta": 0.1 },
+    { "alpha": 0.5, "beta": 0.2 }
+  ],
+  "seasonal_naive": [
+    { "season_length": 12 }
+  ],
+  "arima": [
+    { "p": 1, "d": 1, "q": 1 },
+    { "p": 2, "d": 1, "q": 2 }
+  ],
+  "prophet": [
+    { "changepoint_prior_scale": 0.05, "seasonality_mode": "additive" },
+    { "changepoint_prior_scale": 0.1, "seasonality_mode": "multiplicative" }
+  ]
+}`
+
 type ForecastStageKey = typeof FORECAST_STAGES[number]['key']
 
 export function ForecastingPage() {
@@ -954,14 +980,9 @@ export function ForecastingPage() {
               }
             }}
             className="w-full px-2.5 py-2 text-xs border border-gray-300 rounded-lg font-mono"
-            placeholder={`{
-  "ewma": [
-    { "alpha": 0.2 },
-    { "alpha": 0.5 }
-  ]
-}`}
+            placeholder={PARAMETER_GRID_EXAMPLE}
           />
-          <p className="mt-1 text-[11px] text-gray-500">Format: model_id → array of parameter objects. Best parameter set is selected per model.</p>
+          <p className="mt-1 text-[11px] text-gray-500">Format: model_id → array of parameter objects. Example includes all supported models; best parameter set is selected per model.</p>
         </div>
 
         {modelComparisonFlags.length > 0 && (
