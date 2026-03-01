@@ -64,6 +64,11 @@ class BaseForecastStrategy(ABC):
         last_period = df["ds"].iloc[-1].date() if len(df) > 0 else date.today().replace(day=1)
         return [last_period + relativedelta(months=i) for i in range(1, horizon + 1)]
 
+    def _horizon_interval_scale(self, step: int) -> float:
+        """Increase uncertainty gradually as forecast horizon extends."""
+        step = max(1, int(step))
+        return min(2.0, 1.0 + 0.15 * np.sqrt(step - 1))
+
 
 # ── Concrete Strategy 1: Moving Average ──────────────────────────────────────
 
@@ -100,8 +105,8 @@ class MovingAverageStrategy(BaseForecastStrategy):
             {
                 "period": p,
                 "predicted_qty": round(max(0.0, weighted_avg + trend * i * trend_weight), 2),
-                "lower_bound": round(max(0.0, weighted_avg + trend * i * trend_weight - 1.96 * std), 2),
-                "upper_bound": round(weighted_avg + trend * i * trend_weight + 1.96 * std, 2),
+                "lower_bound": round(max(0.0, weighted_avg + trend * i * trend_weight - 1.96 * std * self._horizon_interval_scale(i)), 2),
+                "upper_bound": round(weighted_avg + trend * i * trend_weight + 1.96 * std * self._horizon_interval_scale(i), 2),
                 "confidence": 80.0,
                 "mape": None,
             }
@@ -148,12 +153,12 @@ class ExponentialSmoothingStrategy(BaseForecastStrategy):
                 {
                     "period": p,
                     "predicted_qty": round(max(0.0, float(v)), 2),
-                    "lower_bound": round(max(0.0, float(v) - 1.96 * std), 2),
-                    "upper_bound": round(float(v) + 1.96 * std, 2),
+                    "lower_bound": round(max(0.0, float(v) - 1.96 * std * self._horizon_interval_scale(i)), 2),
+                    "upper_bound": round(float(v) + 1.96 * std * self._horizon_interval_scale(i), 2),
                     "confidence": 85.0,
                     "mape": None,
                 }
-                for p, v in zip(future_periods, forecast_values)
+                for i, (p, v) in enumerate(zip(future_periods, forecast_values), 1)
             ]
         except Exception:
             return MovingAverageStrategy().forecast(df, horizon, params=params)
@@ -188,8 +193,8 @@ class EWMAStrategy(BaseForecastStrategy):
             {
                 "period": p,
                 "predicted_qty": round(max(0.0, ewma + trend * i * trend_weight), 2),
-                "lower_bound": round(max(0.0, ewma + trend * i * trend_weight - 1.64 * std), 2),
-                "upper_bound": round(max(0.0, ewma + trend * i * trend_weight + 1.64 * std), 2),
+                "lower_bound": round(max(0.0, ewma + trend * i * trend_weight - 1.64 * std * self._horizon_interval_scale(i)), 2),
+                "upper_bound": round(max(0.0, ewma + trend * i * trend_weight + 1.64 * std * self._horizon_interval_scale(i)), 2),
                 "confidence": 82.0,
                 "mape": None,
             }
@@ -226,12 +231,12 @@ class SeasonalNaiveStrategy(BaseForecastStrategy):
             {
                 "period": p,
                 "predicted_qty": round(max(0.0, v), 2),
-                "lower_bound": round(max(0.0, v - 1.64 * std), 2),
-                "upper_bound": round(max(0.0, v + 1.64 * std), 2),
+                "lower_bound": round(max(0.0, v - 1.64 * std * self._horizon_interval_scale(i)), 2),
+                "upper_bound": round(max(0.0, v + 1.64 * std * self._horizon_interval_scale(i)), 2),
                 "confidence": 78.0,
                 "mape": None,
             }
-            for p, v in zip(future_periods, vals)
+            for i, (p, v) in enumerate(zip(future_periods, vals), 1)
         ]
 
 
@@ -445,12 +450,12 @@ class LSTMStrategy(BaseForecastStrategy):
                 {
                     "period": p,
                     "predicted_qty": round(v, 2),
-                    "lower_bound": round(max(0.0, v - 1.64 * resid_std), 2),
-                    "upper_bound": round(max(0.0, v + 1.64 * resid_std), 2),
+                    "lower_bound": round(max(0.0, v - 1.64 * resid_std * self._horizon_interval_scale(i)), 2),
+                    "upper_bound": round(max(0.0, v + 1.64 * resid_std * self._horizon_interval_scale(i)), 2),
                     "confidence": 86.0,
                     "mape": None,
                 }
-                for p, v in zip(future_periods, preds)
+                for i, (p, v) in enumerate(zip(future_periods, preds), 1)
             ]
         except Exception:
             return ExponentialSmoothingStrategy().forecast(df, horizon, params=params)

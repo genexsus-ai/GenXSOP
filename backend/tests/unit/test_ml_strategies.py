@@ -91,6 +91,13 @@ class TestMovingAverageStrategy:
         for item in result:
             assert item["upper_bound"] >= item["lower_bound"]
 
+    def test_confidence_interval_widens_with_horizon(self):
+        df = make_df(18, base=1000.0, noise=35.0)
+        result = MovingAverageStrategy().forecast(df, horizon=6, params={"trend_weight": 0.0})
+        widths = [item["upper_bound"] - item["lower_bound"] for item in result]
+        assert widths[-1] > widths[0]
+        assert all(widths[i] >= widths[i - 1] for i in range(1, len(widths)))
+
 
 # ── Exponential Smoothing Strategy ───────────────────────────────────────────
 
@@ -123,6 +130,23 @@ class TestEWMAStrategy:
         result = EWMAStrategy().forecast(df, horizon=4)
         assert len(result) == 4
         assert all(item["predicted_qty"] >= 0 for item in result)
+
+    def test_confidence_interval_widens_with_horizon(self):
+        df = make_df(24, base=900.0, noise=40.0)
+        result = EWMAStrategy().forecast(df, horizon=6, params={"trend_weight": 0.0})
+        widths = [item["upper_bound"] - item["lower_bound"] for item in result]
+        assert widths[-1] > widths[0]
+        assert all(widths[i] >= widths[i - 1] for i in range(1, len(widths)))
+
+
+class TestBaseForecastIntervalScaling:
+
+    def test_horizon_scale_is_non_decreasing_and_capped(self):
+        strategy = MovingAverageStrategy()
+        scales = [strategy._horizon_interval_scale(i) for i in range(1, 60)]
+        assert all(scales[i] >= scales[i - 1] for i in range(1, len(scales)))
+        assert scales[0] == 1.0
+        assert scales[-1] <= 2.0
 
 
 class TestSeasonalNaiveStrategy:
