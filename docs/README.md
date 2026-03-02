@@ -16,6 +16,8 @@ Welcome to the GenXSOP docs.
 - **Conversation scenario map:** [`conversation-scenarios.md`](conversation-scenarios.md)
 - **Enterprise readiness plan:** [`enterprise-readiness-plan.md`](enterprise-readiness-plan.md)
 - **Forecasting GenXAI enhancements (advisor + visualizations):** [`forecasting-genxai-enhancements.md`](forecasting-genxai-enhancements.md)
+- **Inventory optimization assessment + executive scorecard:** [`inventory-optimization-assessment-scorecard.md`](inventory-optimization-assessment-scorecard.md)
+- **Enterprise inventory optimization technical plan:** [`enterprise-inventory-optimization-technical-plan.md`](enterprise-inventory-optimization-technical-plan.md)
 - **DB operations runbook (P2):** [`operations/db-operations-runbook.md`](operations/db-operations-runbook.md)
 - **Developer / API Guide:** [`api-guide.md`](api-guide.md)
 - **Architecture docs (C4 + more):** [`architecture/README.md`](architecture/README.md)

@@ -52,3 +52,15 @@ class InventoryRepository(BaseRepository[Inventory]):
 
     def get_all_inventory(self) -> List[Inventory]:
         return self.db.query(Inventory).all()
+
+    def list_for_policy(
+        self,
+        product_id: Optional[int] = None,
+        location: Optional[str] = None,
+    ) -> List[Inventory]:
+        q = self.db.query(Inventory)
+        if product_id:
+            q = q.filter(Inventory.product_id == product_id)
+        if location:
+            q = q.filter(Inventory.location == location)
+        return q.all()

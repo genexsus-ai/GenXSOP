@@ -265,6 +265,123 @@ export interface UpdateInventoryRequest {
   max_stock?: number
 }
 
+export interface InventoryOptimizationRunRequest {
+  product_id?: number
+  location?: string
+  service_level_target?: number
+  lead_time_days?: number
+  review_period_days?: number
+  moq_units?: number
+  lot_size_units?: number
+  capacity_max_units?: number
+  lead_time_variability_days?: number
+}
+
+export interface InventoryException {
+  id?: number
+  inventory_id: number
+  product_id: number
+  location: string
+  exception_type: 'stockout_risk' | 'excess_risk' | string
+  severity: 'high' | 'medium' | 'low' | string
+  status: string
+  recommended_action: string
+  owner_user_id?: number
+  due_date?: string
+  notes?: string
+}
+
+export interface InventoryOptimizationRunResponse {
+  run_id: string
+  processed_count: number
+  updated_count: number
+  exception_count: number
+  generated_at: string
+  exceptions: InventoryException[]
+}
+
+export interface InventoryPolicyOverrideRequest {
+  safety_stock?: number
+  reorder_point?: number
+  max_stock?: number
+  reason: string
+}
+
+export interface InventoryExceptionUpdateRequest {
+  owner_user_id?: number
+  due_date?: string
+  notes?: string
+  status?: 'open' | 'in_progress' | 'resolved' | 'dismissed'
+}
+
+export interface InventoryRecommendationGenerateRequest {
+  product_id?: number
+  location?: string
+  min_confidence?: number
+  max_items?: number
+}
+
+export interface InventoryPolicyRecommendation {
+  id: number
+  inventory_id: number
+  product_id: number
+  location: string
+  recommended_safety_stock: number
+  recommended_reorder_point: number
+  recommended_max_stock?: number
+  confidence_score: number
+  rationale: string
+  signals?: Record<string, unknown>
+  status: 'pending' | 'accepted' | 'rejected' | 'applied' | string
+  decision_notes?: string
+  decided_by?: number
+  decided_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface InventoryRecommendationDecisionRequest {
+  decision: 'accepted' | 'rejected'
+  apply_changes?: boolean
+  notes?: string
+}
+
+export interface InventoryAutoApplyRequest {
+  min_confidence?: number
+  max_demand_pressure?: number
+  max_items?: number
+  dry_run?: boolean
+}
+
+export interface InventoryAutoApplyResponse {
+  eligible_count: number
+  applied_count: number
+  skipped_count: number
+  recommendation_ids: number[]
+}
+
+export interface InventoryRebalanceRecommendation {
+  product_id: number
+  product_name?: string
+  from_inventory_id: number
+  from_location: string
+  to_inventory_id: number
+  to_location: string
+  transfer_qty: number
+  estimated_service_uplift_pct: number
+}
+
+export interface InventoryControlTowerSummary {
+  pending_recommendations: number
+  accepted_recommendations: number
+  applied_recommendations: number
+  acceptance_rate_pct: number
+  autonomous_applied_24h: number
+  open_exceptions: number
+  overdue_exceptions: number
+  recommendation_backlog_risk: 'low' | 'medium' | 'high' | string
+}
+
 // ── Forecast ──────────────────────────────────────────────────────────────────
 
 export type ForecastModelType =

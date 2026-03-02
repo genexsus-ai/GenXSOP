@@ -11,6 +11,8 @@ from app.models.scenario import Scenario
 from app.models.sop_cycle import SOPCycle
 from app.models.kpi_metric import KPIMetric
 from app.models.production_schedule import ProductionSchedule
+from app.models.inventory_policy_exception import InventoryPolicyException
+from app.models.inventory_policy_recommendation import InventoryPolicyRecommendation
 from app.models.comment import Comment, AuditLog
 
 __all__ = [
@@ -28,6 +30,8 @@ __all__ = [
     "SOPCycle",
     "KPIMetric",
     "ProductionSchedule",
+    "InventoryPolicyException",
+    "InventoryPolicyRecommendation",
     "Comment",
     "AuditLog",
 ]

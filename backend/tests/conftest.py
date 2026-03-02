@@ -186,7 +186,6 @@ def inventory(db: Session, product: Product) -> Inventory:
         reorder_point=Decimal("80.00"),
         max_stock=Decimal("600.00"),
         status="normal",
-        unit_cost=Decimal("100.00"),
         valuation=Decimal("20000.00"),
     )
     db.add(inv)

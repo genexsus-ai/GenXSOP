@@ -52,3 +52,11 @@ class SupplyPlanRepository(BaseRepository[SupplyPlan]):
             .filter(SupplyPlan.product_id == product_id, SupplyPlan.period == period)
             .first()
         )
+
+    def get_latest_by_product(self, product_id: int) -> Optional[SupplyPlan]:
+        return (
+            self.db.query(SupplyPlan)
+            .filter(SupplyPlan.product_id == product_id)
+            .order_by(SupplyPlan.period.desc(), SupplyPlan.version.desc())
+            .first()
+        )

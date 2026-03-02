@@ -12,6 +12,7 @@ from app.repositories.scenario_repository import ScenarioRepository
 from app.repositories.demand_repository import DemandPlanRepository
 from app.repositories.supply_repository import SupplyPlanRepository
 from app.repositories.inventory_repository import InventoryRepository
+from app.repositories.inventory_exception_repository import InventoryExceptionRepository
 from app.repositories.product_repository import ProductRepository
 from app.models.demand_plan import DemandPlan
 from app.models.scenario import Scenario
@@ -28,6 +29,7 @@ class ScenarioService:
         self._demand_repo = DemandPlanRepository(db)
         self._supply_repo = SupplyPlanRepository(db)
         self._inventory_repo = InventoryRepository(db)
+        self._inventory_exception_repo = InventoryExceptionRepository(db)
         self._product_repo = ProductRepository(db)
         self._bus = get_event_bus()
 
@@ -193,6 +195,37 @@ class ScenarioService:
         if simulated_demand_qty > 0:
             simulated_service = min(Decimal("100"), (simulated_effective_supply / simulated_demand_qty) * Decimal("100"))
 
+        # Scenario trade-off layer (service vs inventory cost vs working capital)
+        shortage_units = max(Decimal("0"), simulated_demand_qty - simulated_effective_supply)
+        excess_units = max(Decimal("0"), simulated_effective_supply - simulated_demand_qty)
+        carrying_rate_pct = self._to_decimal(params.get("inventory_carry_rate_pct", 18))
+        stockout_penalty_per_unit = self._to_decimal(
+            params.get("stockout_penalty_per_unit", (avg_price * Decimal("0.25")) if avg_price > 0 else Decimal("1"))
+        )
+        inventory_carrying_cost = (excess_units * avg_unit_cost * carrying_rate_pct / Decimal("100")).quantize(Decimal("0.01"))
+        stockout_penalty_cost = (shortage_units * stockout_penalty_per_unit).quantize(Decimal("0.01"))
+        working_capital_delta = (simulated_inventory - base_inventory).quantize(Decimal("0.01"))
+
+        service_weight = self._to_decimal(params.get("service_weight", 0.45))
+        cost_weight = self._to_decimal(params.get("cost_weight", 0.30))
+        cash_weight = self._to_decimal(params.get("cash_weight", 0.25))
+        service_score = (simulated_service - base_service)
+        cost_score = -((inventory_carrying_cost + stockout_penalty_cost) / Decimal("1000"))
+        cash_score = -(working_capital_delta / Decimal("1000"))
+        composite_tradeoff_score = (
+            service_weight * service_score
+            + cost_weight * cost_score
+            + cash_weight * cash_score
+        ).quantize(Decimal("0.01"))
+
+        inventory_ids = [inv.id for inv in inventory_rows]
+        open_exceptions = [
+            ex for ex in self._inventory_exception_repo.list_filtered(status="open")
+            if ex.inventory_id in inventory_ids
+        ]
+        high_risk_count = len([ex for ex in open_exceptions if ex.severity == "high"])
+        medium_risk_count = len([ex for ex in open_exceptions if ex.severity == "medium"])
+
         results = {
             "period": target_period.isoformat(),
             "inputs": {
@@ -231,6 +264,18 @@ class ScenarioService:
             "inventory_impact": float(simulated_inventory - base_inventory),
             "service_level_impact": float(simulated_service - base_service),
             "capacity_utilization_change": float(supply_capacity_pct),
+            "tradeoff": {
+                "inventory_carrying_cost": float(inventory_carrying_cost),
+                "stockout_penalty_cost": float(stockout_penalty_cost),
+                "working_capital_delta": float(working_capital_delta),
+                "service_score": float(service_score),
+                "cost_score": float(cost_score),
+                "cash_score": float(cash_score),
+                "composite_score": float(composite_tradeoff_score),
+                "open_inventory_exceptions": len(open_exceptions),
+                "high_risk_exception_count": high_risk_count,
+                "medium_risk_exception_count": medium_risk_count,
+            },
         }
         updates = {
             "status": "completed",

@@ -10,6 +10,8 @@ from app.repositories.product_repository import ProductRepository, CategoryRepos
 from app.repositories.forecast_repository import ForecastRepository
 from app.repositories.forecast_consensus_repository import ForecastConsensusRepository
 from app.repositories.production_schedule_repository import ProductionScheduleRepository
+from app.repositories.inventory_exception_repository import InventoryExceptionRepository
+from app.repositories.inventory_recommendation_repository import InventoryRecommendationRepository
 
 __all__ = [
     "BaseRepository",
@@ -24,4 +26,6 @@ __all__ = [
     "ForecastRepository",
     "ForecastConsensusRepository",
     "ProductionScheduleRepository",
+    "InventoryExceptionRepository",
+    "InventoryRecommendationRepository",
 ]

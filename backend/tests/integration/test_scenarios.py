@@ -105,6 +105,39 @@ class TestScenarioWorkflow:
         assert resp.status_code == 200
         assert resp.json()["status"] == "approved"
 
+    def test_run_scenario_includes_tradeoff_metrics(self, client: TestClient, admin_headers, demand_plan, supply_plan, inventory):
+        create_resp = client.post("/api/v1/scenarios/", headers=admin_headers, json={
+            "name": "Tradeoff Test",
+            "scenario_type": "what_if",
+            "parameters": {
+                "period": "2026-03-01",
+                "demand_change_pct": 8,
+                "supply_capacity_pct": -5,
+                "price_change_pct": 1,
+                "inventory_release_pct": 0,
+                "inventory_carry_rate_pct": 20,
+                "service_weight": 0.5,
+                "cost_weight": 0.3,
+                "cash_weight": 0.2,
+            },
+        })
+        assert create_resp.status_code == 201
+        scenario_id = create_resp.json()["id"]
+
+        run_resp = client.post(f"/api/v1/scenarios/{scenario_id}/run", headers=admin_headers)
+        assert run_resp.status_code == 200
+        payload = run_resp.json()
+        assert payload["status"] == "completed"
+        assert payload.get("results") is not None
+
+        import json as _json
+        results = _json.loads(payload["results"]) if isinstance(payload["results"], str) else payload["results"]
+        tradeoff = results.get("tradeoff", {})
+        assert "inventory_carrying_cost" in tradeoff
+        assert "stockout_penalty_cost" in tradeoff
+        assert "working_capital_delta" in tradeoff
+        assert "composite_score" in tradeoff
+
 
 class TestScenarioComparison:
 
