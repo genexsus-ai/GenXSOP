@@ -4,11 +4,14 @@ Inventory Service — Service Layer (SRP / DIP)
 from datetime import datetime, timedelta
 from uuid import uuid4
 from math import ceil
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import json
+import random
 from decimal import Decimal, ROUND_CEILING
+from statistics import NormalDist
 from sqlalchemy.orm import Session
 
+from app.repositories.demand_repository import DemandPlanRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.inventory_exception_repository import InventoryExceptionRepository
 from app.repositories.product_repository import ProductRepository
@@ -37,6 +40,10 @@ from app.schemas.inventory import (
     InventoryWorkingCapitalSummary,
     InventoryAssessmentScorecard,
     InventoryAssessmentAreaScore,
+    InventoryServiceLevelAnalyticsRequest,
+    InventoryServiceLevelAnalyticsResponse,
+    InventoryServiceLevelDistributionPoint,
+    InventoryServiceLevelSuggestion,
 )
 from app.core.exceptions import EntityNotFoundException, to_http_exception
 from app.utils.events import get_event_bus, EntityUpdatedEvent
@@ -47,6 +54,7 @@ class InventoryService:
     def __init__(self, db: Session):
         self._repo = InventoryRepository(db)
         self._exception_repo = InventoryExceptionRepository(db)
+        self._demand_repo = DemandPlanRepository(db)
         self._product_repo = ProductRepository(db)
         self._supply_repo = SupplyPlanRepository(db)
         self._recommendation_repo = InventoryRecommendationRepository(db)
@@ -796,6 +804,91 @@ class InventoryService:
             excess_pct=round(counts["excess"] / total * 100, 1),
         )
 
+    def analyze_service_level_under_uncertainty(
+        self,
+        payload: InventoryServiceLevelAnalyticsRequest,
+    ) -> InventoryServiceLevelAnalyticsResponse:
+        inv = self._resolve_inventory_scope(payload)
+
+        demand_mean_daily, demand_std_daily = self._estimate_daily_demand_stats(inv)
+        if payload.demand_std_override is not None:
+            demand_std_daily = max(Decimal("0.01"), Decimal(str(payload.demand_std_override)))
+        lead_time_mean_days, lead_time_std_days = self._estimate_lead_time_stats(inv, payload)
+
+        mean_dlt = demand_mean_daily * lead_time_mean_days
+        variance_dlt = (
+            (lead_time_mean_days * (demand_std_daily ** 2))
+            + ((demand_mean_daily ** 2) * (lead_time_std_days ** 2))
+        )
+        std_dlt = max(Decimal("0.0001"), Decimal(str(float(variance_dlt) ** 0.5)))
+
+        reorder_point = inv.reorder_point or Decimal("0")
+        on_hand = inv.on_hand_qty or Decimal("0")
+        safety_stock = inv.safety_stock or Decimal("0")
+
+        if payload.method == "monte_carlo":
+            cycle_service_level, expected_shortage_units, fill_rate, distribution = self._run_monte_carlo(
+                mean_dlt=mean_dlt,
+                std_dlt=std_dlt,
+                reorder_point=reorder_point,
+                simulation_runs=payload.simulation_runs,
+                bucket_count=payload.bucket_count,
+            )
+        else:
+            z_current = float((reorder_point - mean_dlt) / std_dlt)
+            normal = NormalDist()
+            cycle_service_level = normal.cdf(z_current)
+            expected_shortage_units = self._expected_shortage_units(std_dlt, z_current)
+            fill_rate = max(0.0, min(1.0, 1.0 - float(expected_shortage_units / max(mean_dlt, Decimal("1")))))
+            samples = [
+                max(0.0, random.normalvariate(float(mean_dlt), float(std_dlt)))
+                for _ in range(min(5000, max(1000, payload.simulation_runs)))
+            ]
+            distribution = self._build_distribution(samples, payload.bucket_count)
+
+        stockout_probability = max(0.0, min(1.0, 1.0 - cycle_service_level))
+        z_target = Decimal(str(self._target_service_to_z(payload.target_service_level)))
+        recommended_safety_stock = (z_target * std_dlt).quantize(Decimal("0.01"))
+        recommended_reorder_point = (mean_dlt + recommended_safety_stock).quantize(Decimal("0.01"))
+
+        curve_targets = [0.90, 0.95, 0.97, 0.99]
+        service_level_curve = []
+        for t in curve_targets:
+            z = Decimal(str(self._target_service_to_z(t)))
+            req_ss = (z * std_dlt).quantize(Decimal("0.01"))
+            service_level_curve.append(
+                InventoryServiceLevelSuggestion(
+                    target_service_level=t,
+                    required_safety_stock=req_ss,
+                    required_reorder_point=(mean_dlt + req_ss).quantize(Decimal("0.01")),
+                )
+            )
+
+        return InventoryServiceLevelAnalyticsResponse(
+            inventory_id=inv.id,
+            product_id=inv.product_id,
+            location=inv.location,
+            method=payload.method,
+            target_service_level=payload.target_service_level,
+            current_on_hand_qty=on_hand.quantize(Decimal("0.01")),
+            current_safety_stock=safety_stock.quantize(Decimal("0.01")),
+            current_reorder_point=reorder_point.quantize(Decimal("0.01")),
+            demand_mean_daily=demand_mean_daily.quantize(Decimal("0.0001")),
+            demand_std_daily=demand_std_daily.quantize(Decimal("0.0001")),
+            lead_time_mean_days=lead_time_mean_days.quantize(Decimal("0.01")),
+            lead_time_std_days=lead_time_std_days.quantize(Decimal("0.01")),
+            mean_demand_during_lead_time=mean_dlt.quantize(Decimal("0.01")),
+            std_demand_during_lead_time=std_dlt.quantize(Decimal("0.01")),
+            cycle_service_level=round(cycle_service_level, 4),
+            fill_rate=round(fill_rate, 4),
+            stockout_probability=round(stockout_probability, 4),
+            expected_shortage_units=expected_shortage_units.quantize(Decimal("0.01")),
+            recommended_safety_stock=recommended_safety_stock,
+            recommended_reorder_point=recommended_reorder_point,
+            service_level_curve=service_level_curve,
+            distribution=distribution,
+        )
+
     def get_alerts(self) -> dict:
         return {
             "critical": [
@@ -811,6 +904,124 @@ class InventoryService:
                 for i in self._repo.get_excess()
             ],
         }
+
+    def _resolve_inventory_scope(self, payload: InventoryServiceLevelAnalyticsRequest) -> Inventory:
+        if payload.inventory_id:
+            return self.get_inventory(payload.inventory_id)
+
+        if payload.product_id and payload.location:
+            inv = self._repo.get_by_product_and_location(payload.product_id, payload.location)
+            if inv:
+                return inv
+
+        if payload.product_id:
+            invs = self._repo.list_for_policy(product_id=payload.product_id, location=payload.location)
+            if invs:
+                return invs[0]
+
+        raise ValueError("Provide inventory_id or valid product_id/location scope for service-level analytics")
+
+    def _estimate_daily_demand_stats(self, inv: Inventory) -> Tuple[Decimal, Decimal]:
+        history = self._demand_repo.get_with_actuals(inv.product_id)
+        actuals = [Decimal(str(h.actual_qty)) for h in history[-12:] if h.actual_qty is not None]
+
+        if not actuals:
+            basis = (inv.allocated_qty or Decimal("0")) + (inv.in_transit_qty or Decimal("0"))
+            mean = max(Decimal("1"), basis / Decimal("30"))
+            return mean, max(Decimal("0.25"), mean * Decimal("0.25"))
+
+        daily = [a / Decimal("30") for a in actuals]
+        mean = sum(daily, Decimal("0")) / Decimal(str(len(daily)))
+        if len(daily) == 1:
+            std = max(Decimal("0.25"), mean * Decimal("0.20"))
+        else:
+            var = sum(((d - mean) ** 2 for d in daily), Decimal("0")) / Decimal(str(len(daily) - 1))
+            std = Decimal(str(float(var) ** 0.5))
+
+        return max(Decimal("0.01"), mean), max(Decimal("0.01"), std)
+
+    def _estimate_lead_time_stats(
+        self,
+        inv: Inventory,
+        payload: InventoryServiceLevelAnalyticsRequest,
+    ) -> Tuple[Decimal, Decimal]:
+        product = self._product_repo.get_by_id(inv.product_id)
+        supply = self._supply_repo.get_latest_by_product(inv.product_id)
+
+        base = Decimal("14")
+        if product and getattr(product, "lead_time_days", None):
+            base = Decimal(str(product.lead_time_days))
+        if supply and getattr(supply, "lead_time_days", None):
+            base = Decimal(str(supply.lead_time_days))
+
+        std = Decimal(str(payload.lead_time_std_override)) if payload.lead_time_std_override is not None else max(Decimal("0.5"), base * Decimal("0.15"))
+        return max(Decimal("1"), base), max(Decimal("0.01"), std)
+
+    def _target_service_to_z(self, service_level: float) -> float:
+        # Clamp to avoid +/- inf.
+        bounded = min(0.999, max(0.5001, service_level))
+        return NormalDist().inv_cdf(bounded)
+
+    def _expected_shortage_units(self, std_dlt: Decimal, z: float) -> Decimal:
+        normal = NormalDist()
+        phi = Decimal(str(normal.pdf(z)))
+        tail = Decimal(str(1 - normal.cdf(z)))
+        loss = phi - (Decimal(str(z)) * tail)
+        return max(Decimal("0"), std_dlt * max(Decimal("0"), loss))
+
+    def _run_monte_carlo(
+        self,
+        mean_dlt: Decimal,
+        std_dlt: Decimal,
+        reorder_point: Decimal,
+        simulation_runs: int,
+        bucket_count: int,
+    ) -> Tuple[float, Decimal, float, List[InventoryServiceLevelDistributionPoint]]:
+        samples = [
+            max(0.0, random.normalvariate(float(mean_dlt), float(std_dlt)))
+            for _ in range(simulation_runs)
+        ]
+
+        no_stockout = sum(1 for d in samples if d <= float(reorder_point))
+        cycle_service_level = (no_stockout / max(1, simulation_runs))
+        shortages = [max(0.0, d - float(reorder_point)) for d in samples]
+        expected_shortage = Decimal(str(sum(shortages) / max(1, len(shortages))))
+        avg_demand = max(1.0, sum(samples) / max(1, len(samples)))
+        fill_rate = max(0.0, min(1.0, 1.0 - (float(expected_shortage) / avg_demand)))
+
+        distribution = self._build_distribution(samples, bucket_count)
+        return cycle_service_level, expected_shortage, fill_rate, distribution
+
+    def _build_distribution(self, samples: List[float], bucket_count: int) -> List[InventoryServiceLevelDistributionPoint]:
+        if not samples:
+            return []
+
+        lo = min(samples)
+        hi = max(samples)
+        if hi <= lo:
+            hi = lo + 1.0
+        width = (hi - lo) / bucket_count
+        bins = [0 for _ in range(bucket_count)]
+
+        for s in samples:
+            idx = int((s - lo) / width) if width > 0 else 0
+            idx = max(0, min(bucket_count - 1, idx))
+            bins[idx] += 1
+
+        total = len(samples)
+        points: List[InventoryServiceLevelDistributionPoint] = []
+        for i, c in enumerate(bins):
+            start = lo + i * width
+            end = start + width
+            midpoint = (start + end) / 2
+            points.append(
+                InventoryServiceLevelDistributionPoint(
+                    bucket=f"{start:.1f}-{end:.1f}",
+                    midpoint=round(midpoint, 3),
+                    probability=round(c / total, 6),
+                )
+            )
+        return points
 
     def _recalculate_status(self, inv: Inventory) -> Inventory:
         """Business rule: recalculate inventory status based on thresholds."""

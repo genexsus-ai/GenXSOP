@@ -450,6 +450,57 @@ export interface InventoryAssessmentScorecard {
   areas: InventoryAssessmentAreaScore[]
 }
 
+export type InventoryServiceLevelMethod = 'analytical' | 'monte_carlo'
+
+export interface InventoryServiceLevelAnalyticsRequest {
+  inventory_id?: number
+  product_id?: number
+  location?: string
+  target_service_level?: number
+  method?: InventoryServiceLevelMethod
+  simulation_runs?: number
+  demand_std_override?: number
+  lead_time_std_override?: number
+  bucket_count?: number
+}
+
+export interface InventoryServiceLevelDistributionPoint {
+  bucket: string
+  midpoint: number
+  probability: number
+}
+
+export interface InventoryServiceLevelSuggestion {
+  target_service_level: number
+  required_safety_stock: number
+  required_reorder_point: number
+}
+
+export interface InventoryServiceLevelAnalyticsResponse {
+  inventory_id: number
+  product_id: number
+  location: string
+  method: InventoryServiceLevelMethod
+  target_service_level: number
+  current_on_hand_qty: number
+  current_safety_stock: number
+  current_reorder_point: number
+  demand_mean_daily: number
+  demand_std_daily: number
+  lead_time_mean_days: number
+  lead_time_std_days: number
+  mean_demand_during_lead_time: number
+  std_demand_during_lead_time: number
+  cycle_service_level: number
+  fill_rate: number
+  stockout_probability: number
+  expected_shortage_units: number
+  recommended_safety_stock: number
+  recommended_reorder_point: number
+  service_level_curve: InventoryServiceLevelSuggestion[]
+  distribution: InventoryServiceLevelDistributionPoint[]
+}
+
 // ── Forecast ──────────────────────────────────────────────────────────────────
 
 export type ForecastModelType =

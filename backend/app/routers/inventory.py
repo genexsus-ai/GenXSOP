@@ -30,6 +30,8 @@ from app.schemas.inventory import (
     InventoryEscalationItem,
     InventoryWorkingCapitalSummary,
     InventoryAssessmentScorecard,
+    InventoryServiceLevelAnalyticsRequest,
+    InventoryServiceLevelAnalyticsResponse,
 )
 from app.dependencies import get_current_user, require_roles
 from app.services.inventory_service import InventoryService
@@ -219,6 +221,15 @@ def get_inventory_assessment_scorecard(
     _: User = Depends(get_current_user),
 ):
     return service.get_assessment_scorecard()
+
+
+@router.post("/analytics/service-level", response_model=InventoryServiceLevelAnalyticsResponse)
+def get_inventory_service_level_analytics(
+    payload: InventoryServiceLevelAnalyticsRequest,
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(get_current_user),
+):
+    return service.analyze_service_level_under_uncertainty(payload)
 
 
 @router.get("/{inventory_id}", response_model=InventoryResponse)

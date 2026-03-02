@@ -21,6 +21,8 @@ import type {
   InventoryWorkingCapitalSummary,
   InventoryHealthSummary,
   InventoryAssessmentScorecard,
+  InventoryServiceLevelAnalyticsRequest,
+  InventoryServiceLevelAnalyticsResponse,
 } from '@/types'
 
 /**
@@ -74,6 +76,38 @@ function normalizeRebalance(raw: any): InventoryRebalanceRecommendation {
     transfer_qty: toNumber(raw?.transfer_qty) ?? 0,
     estimated_service_uplift_pct: toNumber(raw?.estimated_service_uplift_pct) ?? 0,
   } as InventoryRebalanceRecommendation
+}
+
+function normalizeServiceLevelAnalytics(raw: any): InventoryServiceLevelAnalyticsResponse {
+  return {
+    ...raw,
+    current_on_hand_qty: toNumber(raw?.current_on_hand_qty) ?? 0,
+    current_safety_stock: toNumber(raw?.current_safety_stock) ?? 0,
+    current_reorder_point: toNumber(raw?.current_reorder_point) ?? 0,
+    demand_mean_daily: toNumber(raw?.demand_mean_daily) ?? 0,
+    demand_std_daily: toNumber(raw?.demand_std_daily) ?? 0,
+    lead_time_mean_days: toNumber(raw?.lead_time_mean_days) ?? 0,
+    lead_time_std_days: toNumber(raw?.lead_time_std_days) ?? 0,
+    mean_demand_during_lead_time: toNumber(raw?.mean_demand_during_lead_time) ?? 0,
+    std_demand_during_lead_time: toNumber(raw?.std_demand_during_lead_time) ?? 0,
+    expected_shortage_units: toNumber(raw?.expected_shortage_units) ?? 0,
+    recommended_safety_stock: toNumber(raw?.recommended_safety_stock) ?? 0,
+    recommended_reorder_point: toNumber(raw?.recommended_reorder_point) ?? 0,
+    distribution: Array.isArray(raw?.distribution)
+      ? raw.distribution.map((d: any) => ({
+          ...d,
+          midpoint: toNumber(d?.midpoint) ?? 0,
+          probability: toNumber(d?.probability) ?? 0,
+        }))
+      : [],
+    service_level_curve: Array.isArray(raw?.service_level_curve)
+      ? raw.service_level_curve.map((s: any) => ({
+          ...s,
+          required_safety_stock: toNumber(s?.required_safety_stock) ?? 0,
+          required_reorder_point: toNumber(s?.required_reorder_point) ?? 0,
+        }))
+      : [],
+  } as InventoryServiceLevelAnalyticsResponse
 }
 
 export const inventoryService = {
@@ -178,6 +212,11 @@ export const inventoryService = {
   async getAssessmentScorecard(): Promise<InventoryAssessmentScorecard> {
     const res = await api.get<InventoryAssessmentScorecard>('/inventory/assessment/scorecard')
     return res.data
+  },
+
+  async getServiceLevelAnalytics(payload: InventoryServiceLevelAnalyticsRequest): Promise<InventoryServiceLevelAnalyticsResponse> {
+    const res = await api.post<InventoryServiceLevelAnalyticsResponse>('/inventory/analytics/service-level', payload)
+    return normalizeServiceLevelAnalytics(res.data)
   },
 
   async overridePolicy(id: number, payload: InventoryPolicyOverrideRequest): Promise<Inventory> {

@@ -401,3 +401,43 @@ class TestInventoryPhase8:
             assert "area" in area
             assert "yes_count" in area
             assert "rag" in area
+
+
+class TestInventoryServiceLevelAnalytics:
+
+    def test_get_service_level_analytics_analytical(self, client: TestClient, admin_headers, inventory):
+        resp = client.post(
+            "/api/v1/inventory/analytics/service-level",
+            headers=admin_headers,
+            json={
+                "inventory_id": inventory.id,
+                "target_service_level": 0.95,
+                "method": "analytical",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inventory_id"] == inventory.id
+        assert data["method"] == "analytical"
+        assert "cycle_service_level" in data
+        assert "fill_rate" in data
+        assert "distribution" in data
+        assert isinstance(data["distribution"], list)
+
+    def test_get_service_level_analytics_monte_carlo(self, client: TestClient, admin_headers, inventory):
+        resp = client.post(
+            "/api/v1/inventory/analytics/service-level",
+            headers=admin_headers,
+            json={
+                "inventory_id": inventory.id,
+                "target_service_level": 0.97,
+                "method": "monte_carlo",
+                "simulation_runs": 1000,
+                "bucket_count": 10,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["inventory_id"] == inventory.id
+        assert data["method"] == "monte_carlo"
+        assert len(data["distribution"]) == 10

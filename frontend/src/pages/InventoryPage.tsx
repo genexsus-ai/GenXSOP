@@ -19,7 +19,9 @@ import {
   XAxis,
   YAxis,
   BarChart,
+  ComposedChart,
   Bar,
+  Line,
 } from 'recharts'
 import type {
   Inventory,
@@ -32,6 +34,8 @@ import type {
   InventoryWorkingCapitalSummary,
   InventoryHealthSummary,
   InventoryAssessmentScorecard,
+  InventoryServiceLevelAnalyticsResponse,
+  InventoryServiceLevelMethod,
 } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -53,6 +57,10 @@ export function InventoryPage() {
   const [workingCapital, setWorkingCapital] = useState<InventoryWorkingCapitalSummary | null>(null)
   const [healthSummary, setHealthSummary] = useState<InventoryHealthSummary | null>(null)
   const [assessment, setAssessment] = useState<InventoryAssessmentScorecard | null>(null)
+  const [serviceLevelAnalytics, setServiceLevelAnalytics] = useState<InventoryServiceLevelAnalyticsResponse | null>(null)
+  const [serviceLevelMethod, setServiceLevelMethod] = useState<InventoryServiceLevelMethod>('analytical')
+  const [targetServiceLevel, setTargetServiceLevel] = useState(0.95)
+  const [serviceLevelLoading, setServiceLevelLoading] = useState(false)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [optimizationLoading, setOptimizationLoading] = useState(false)
@@ -100,10 +108,32 @@ export function InventoryPage() {
       setHealthSummary(health)
       const asmt = await inventoryService.getAssessmentScorecard()
       setAssessment(asmt)
+
+      if (res.items.length > 0) {
+        await loadServiceLevelAnalytics(res.items[0].id)
+      } else {
+        setServiceLevelAnalytics(null)
+      }
     } catch {
       // handled
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadServiceLevelAnalytics = async (inventoryId: number) => {
+    setServiceLevelLoading(true)
+    try {
+      const data = await inventoryService.getServiceLevelAnalytics({
+        inventory_id: inventoryId,
+        target_service_level: targetServiceLevel,
+        method: serviceLevelMethod,
+        simulation_runs: serviceLevelMethod === 'monte_carlo' ? 2000 : undefined,
+        bucket_count: 20,
+      })
+      setServiceLevelAnalytics(data)
+    } finally {
+      setServiceLevelLoading(false)
     }
   }
 
@@ -207,6 +237,11 @@ export function InventoryPage() {
         { stage: 'Applied', value: controlTower.applied_recommendations },
       ]
     : []
+
+  const serviceLevelDistributionData = (serviceLevelAnalytics?.distribution || []).map((d) => ({
+    bucket: d.bucket,
+    probabilityPct: Number((d.probability * 100).toFixed(2)),
+  }))
 
   const workingCapitalChartData = workingCapital
     ? [
@@ -462,6 +497,79 @@ export function InventoryPage() {
             </div>
           </div>
         </div>
+      </Card>
+
+      <Card title="Service Level Under Uncertainty" subtitle="Probability-based CSL/fill-rate analytics from stock-demand distribution">
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Method</label>
+            <select
+              value={serviceLevelMethod}
+              onChange={(e) => setServiceLevelMethod(e.target.value as InventoryServiceLevelMethod)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2"
+            >
+              <option value="analytical">Analytical</option>
+              <option value="monte_carlo">Monte Carlo</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Target Service Level</label>
+            <select
+              value={String(targetServiceLevel)}
+              onChange={(e) => setTargetServiceLevel(Number(e.target.value))}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2"
+            >
+              <option value="0.9">90%</option>
+              <option value="0.95">95%</option>
+              <option value="0.97">97%</option>
+              <option value="0.99">99%</option>
+            </select>
+          </div>
+          <Button
+            size="sm"
+            loading={serviceLevelLoading}
+            onClick={() => {
+              const id = items[0]?.id
+              if (!id) return
+              void loadServiceLevelAnalytics(id)
+            }}
+          >
+            Recalculate
+          </Button>
+        </div>
+
+        {!serviceLevelAnalytics ? (
+          <div className="text-sm text-gray-500">No inventory scope available for uncertainty analytics.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <KPICard title="Cycle SL" value={`${(serviceLevelAnalytics.cycle_service_level * 100).toFixed(1)}%`} icon={<Package className="h-4 w-4" />} color="emerald" />
+              <KPICard title="Fill Rate" value={`${(serviceLevelAnalytics.fill_rate * 100).toFixed(1)}%`} icon={<Sparkles className="h-4 w-4" />} color="blue" />
+              <KPICard title="Stockout Prob." value={`${(serviceLevelAnalytics.stockout_probability * 100).toFixed(1)}%`} icon={<AlertTriangle className="h-4 w-4" />} color="red" />
+              <KPICard title="Recommended SS" value={formatNumber(serviceLevelAnalytics.recommended_safety_stock)} icon={<Bot className="h-4 w-4" />} color="purple" />
+            </div>
+
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={serviceLevelDistributionData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="bucket" tick={{ fontSize: 10 }} interval={2} />
+                  <YAxis tickFormatter={(v) => `${v}%`} width={44} />
+                  <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
+                  <Bar dataKey="probabilityPct" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
+                  <Line
+                    type="monotone"
+                    dataKey="probabilityPct"
+                    stroke="#1d4ed8"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Distribution Curve"
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
       </Card>
 
       <Card title="Data Quality Gate" subtitle="Phase 6 data quality scoring for recommendation readiness">

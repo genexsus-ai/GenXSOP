@@ -194,6 +194,55 @@ class InventoryAssessmentScorecard(BaseModel):
     areas: List[InventoryAssessmentAreaScore]
 
 
+class InventoryServiceLevelAnalyticsRequest(BaseModel):
+    inventory_id: Optional[int] = None
+    product_id: Optional[int] = None
+    location: Optional[str] = None
+    target_service_level: float = Field(0.95, ge=0.50, le=0.999)
+    method: str = Field("analytical", pattern="^(analytical|monte_carlo)$")
+    simulation_runs: int = Field(5000, ge=100, le=50000)
+    demand_std_override: Optional[float] = Field(None, ge=0)
+    lead_time_std_override: Optional[float] = Field(None, ge=0)
+    bucket_count: int = Field(20, ge=5, le=50)
+
+
+class InventoryServiceLevelDistributionPoint(BaseModel):
+    bucket: str
+    midpoint: float
+    probability: float
+
+
+class InventoryServiceLevelSuggestion(BaseModel):
+    target_service_level: float
+    required_safety_stock: Decimal
+    required_reorder_point: Decimal
+
+
+class InventoryServiceLevelAnalyticsResponse(BaseModel):
+    inventory_id: int
+    product_id: int
+    location: str
+    method: str
+    target_service_level: float
+    current_on_hand_qty: Decimal
+    current_safety_stock: Decimal
+    current_reorder_point: Decimal
+    demand_mean_daily: Decimal
+    demand_std_daily: Decimal
+    lead_time_mean_days: Decimal
+    lead_time_std_days: Decimal
+    mean_demand_during_lead_time: Decimal
+    std_demand_during_lead_time: Decimal
+    cycle_service_level: float
+    fill_rate: float
+    stockout_probability: float
+    expected_shortage_units: Decimal
+    recommended_safety_stock: Decimal
+    recommended_reorder_point: Decimal
+    service_level_curve: List[InventoryServiceLevelSuggestion]
+    distribution: List[InventoryServiceLevelDistributionPoint]
+
+
 class InventoryOptimizationRunResponse(BaseModel):
     run_id: str
     processed_count: int
