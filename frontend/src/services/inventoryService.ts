@@ -19,6 +19,7 @@ import type {
   InventoryDataQuality,
   InventoryEscalationItem,
   InventoryWorkingCapitalSummary,
+  InventoryHealthSummary,
   InventoryAssessmentScorecard,
 } from '@/types'
 
@@ -166,6 +167,11 @@ export const inventoryService = {
 
   async getWorkingCapitalSummary(): Promise<InventoryWorkingCapitalSummary> {
     const res = await api.get<InventoryWorkingCapitalSummary>('/inventory/finance/working-capital')
+    return res.data
+  },
+
+  async getHealthSummary(): Promise<InventoryHealthSummary> {
+    const res = await api.get<InventoryHealthSummary>('/inventory/health')
     return res.data
   },
 

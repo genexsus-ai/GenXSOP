@@ -422,6 +422,19 @@ export interface InventoryWorkingCapitalSummary {
   inventory_health_index: number
 }
 
+export interface InventoryHealthSummary {
+  total_products: number
+  normal_count: number
+  low_count: number
+  critical_count: number
+  excess_count: number
+  total_value: number
+  normal_pct: number
+  low_pct: number
+  critical_pct: number
+  excess_pct: number
+}
+
 export interface InventoryAssessmentAreaScore {
   area: string
   yes_count: number

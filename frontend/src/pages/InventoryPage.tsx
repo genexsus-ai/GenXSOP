@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, Filter, AlertTriangle, Package, Sparkles, ShieldAlert, Bot } from 'lucide-react'
+import { Search, Filter, AlertTriangle, Package, Sparkles, ShieldAlert, Bot, Download, RotateCcw } from 'lucide-react'
 import { inventoryService } from '@/services/inventoryService'
 import { Card } from '@/components/common/Card'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -8,6 +8,19 @@ import { SkeletonTable } from '@/components/common/LoadingSpinner'
 import { Button } from '@/components/common/Button'
 import { Modal } from '@/components/common/Modal'
 import { formatNumber, formatCurrency } from '@/utils/formatters'
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  BarChart,
+  Bar,
+} from 'recharts'
 import type {
   Inventory,
   InventoryException,
@@ -17,6 +30,7 @@ import type {
   InventoryDataQuality,
   InventoryEscalationItem,
   InventoryWorkingCapitalSummary,
+  InventoryHealthSummary,
   InventoryAssessmentScorecard,
 } from '@/types'
 import { useAuthStore } from '@/store/authStore'
@@ -37,6 +51,7 @@ export function InventoryPage() {
   const [dataQuality, setDataQuality] = useState<InventoryDataQuality[]>([])
   const [escalations, setEscalations] = useState<InventoryEscalationItem[]>([])
   const [workingCapital, setWorkingCapital] = useState<InventoryWorkingCapitalSummary | null>(null)
+  const [healthSummary, setHealthSummary] = useState<InventoryHealthSummary | null>(null)
   const [assessment, setAssessment] = useState<InventoryAssessmentScorecard | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -44,6 +59,8 @@ export function InventoryPage() {
   const [recommendationLoading, setRecommendationLoading] = useState(false)
   const [autoApplyLoading, setAutoApplyLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
+  const [qualityTierFilter, setQualityTierFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all')
+  const [recommendationStatusFilter, setRecommendationStatusFilter] = useState('pending')
   const [showOverride, setShowOverride] = useState(false)
   const [selectedInventory, setSelectedInventory] = useState<Inventory | null>(null)
   const [overrideForm, setOverrideForm] = useState({
@@ -67,7 +84,7 @@ export function InventoryPage() {
       setTotal(res.total)
       const ex = await inventoryService.getExceptions()
       setExceptions(ex)
-      const rec = await inventoryService.getRecommendations({ status: 'pending' })
+      const rec = await inventoryService.getRecommendations({ status: recommendationStatusFilter || undefined })
       setRecommendations(rec)
       const rb = await inventoryService.getRebalanceRecommendations({ min_transfer_qty: 1 })
       setRebalance(rb)
@@ -79,6 +96,8 @@ export function InventoryPage() {
       setEscalations(esc)
       const wc = await inventoryService.getWorkingCapitalSummary()
       setWorkingCapital(wc)
+      const health = await inventoryService.getHealthSummary()
+      setHealthSummary(health)
       const asmt = await inventoryService.getAssessmentScorecard()
       setAssessment(asmt)
     } catch {
@@ -104,7 +123,7 @@ export function InventoryPage() {
     }
   }
 
-  useEffect(() => { load() }, [page, statusFilter])
+  useEffect(() => { load() }, [page, statusFilter, recommendationStatusFilter])
 
   const runOptimization = async () => {
     setOptimizationLoading(true)
@@ -164,6 +183,80 @@ export function InventoryPage() {
   const lowCount = items.filter((i) => i.status === 'low').length
   const excessCount = items.filter((i) => i.status === 'excess').length
   const totalValue = items.reduce((sum, i) => sum + (i.valuation ?? 0), 0)
+
+  const statusChartData = [
+    { name: 'Normal', value: healthSummary?.normal_count ?? items.filter((i) => i.status === 'normal').length, color: '#10b981' },
+    { name: 'Low', value: healthSummary?.low_count ?? lowCount, color: '#f59e0b' },
+    { name: 'Critical', value: healthSummary?.critical_count ?? criticalCount, color: '#ef4444' },
+    { name: 'Excess', value: healthSummary?.excess_count ?? excessCount, color: '#8b5cf6' },
+  ]
+
+  const qualityTierData = ['high', 'medium', 'low'].map((tier) => ({
+    tier,
+    count: dataQuality.filter((dq) => dq.quality_tier === tier).length,
+  }))
+
+  const filteredDataQuality = qualityTierFilter === 'all'
+    ? dataQuality
+    : dataQuality.filter((dq) => dq.quality_tier === qualityTierFilter)
+
+  const recommendationFunnelData = controlTower
+    ? [
+        { stage: 'Pending', value: controlTower.pending_recommendations },
+        { stage: 'Accepted', value: controlTower.accepted_recommendations },
+        { stage: 'Applied', value: controlTower.applied_recommendations },
+      ]
+    : []
+
+  const workingCapitalChartData = workingCapital
+    ? [
+        { metric: 'Inventory Value', value: workingCapital.total_inventory_value },
+        { metric: 'Excess Value', value: workingCapital.excess_inventory_value },
+        { metric: 'Low Exposure', value: workingCapital.low_stock_exposure_value },
+        { metric: 'Annual Carry Cost', value: workingCapital.estimated_carrying_cost_annual },
+      ]
+    : []
+
+  const exportInventoryCsv = () => {
+    const escape = (value: string | number | undefined | null) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const headers = ['Product', 'SKU', 'Location', 'On Hand', 'Allocated', 'In Transit', 'Safety Stock', 'ROP', 'Max Stock', 'Days of Supply', 'Status', 'Valuation']
+    const rows = items.map((item) => [
+      item.product?.name ?? `Product #${item.product_id}`,
+      item.product?.sku ?? '',
+      item.location,
+      item.on_hand_qty,
+      item.allocated_qty,
+      item.in_transit_qty,
+      item.safety_stock,
+      item.reorder_point,
+      item.max_stock ?? '',
+      item.days_of_supply ?? '',
+      item.status,
+      item.valuation ?? '',
+    ])
+
+    const csv = [
+      headers.map((h) => escape(h)).join(','),
+      ...rows.map((row) => row.map((cell) => escape(cell as any)).join(',')),
+    ].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `inventory-analytics-page-${page}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const resetAnalyticsDrilldowns = () => {
+    setStatusFilter('')
+    setQualityTierFilter('all')
+    setRecommendationStatusFilter('pending')
+    setPage(1)
+  }
 
   const updateExceptionStatus = async (exceptionId: number, status: 'in_progress' | 'resolved') => {
     try {
@@ -258,12 +351,125 @@ export function InventoryPage() {
         </div>
       )}
 
+      <Card title="Inventory Analytics" subtitle="Phase 1 visual insights for operations and finance decisions">
+        <div className="flex items-center justify-end gap-2 mb-3">
+          <Button size="sm" variant="outline" icon={<RotateCcw className="h-4 w-4" />} onClick={resetAnalyticsDrilldowns}>
+            Reset Drilldowns
+          </Button>
+          <Button size="sm" variant="outline" icon={<Download className="h-4 w-4" />} onClick={exportInventoryCsv}>
+            Export CSV
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="border border-gray-100 rounded-lg p-3">
+            <p className="text-sm font-medium text-gray-800 mb-2">Stock Status Distribution</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={statusChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={85}
+                    onClick={(entry: any) => {
+                      const mapped = String(entry?.name || '').toLowerCase()
+                      if (mapped) {
+                        setStatusFilter(mapped)
+                        setPage(1)
+                      }
+                    }}
+                  >
+                    {statusChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => formatNumber(Number(value ?? 0))} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="border border-gray-100 rounded-lg p-3">
+            <p className="text-sm font-medium text-gray-800 mb-2">Working Capital Breakdown</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={workingCapitalChartData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="metric" tick={{ fontSize: 11 }} />
+                  <YAxis tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`} width={56} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value ?? 0))} />
+                  <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="border border-gray-100 rounded-lg p-3">
+            <p className="text-sm font-medium text-gray-800 mb-2">Data Quality Distribution</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={qualityTierData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="tier" />
+                  <YAxis allowDecimals={false} width={40} />
+                  <Tooltip formatter={(value) => formatNumber(Number(value ?? 0))} />
+                  <Bar
+                    dataKey="count"
+                    radius={[6, 6, 0, 0]}
+                    onClick={(payload: any) => {
+                      const tier = String(payload?.tier || '').toLowerCase()
+                      if (tier === 'high' || tier === 'medium' || tier === 'low') {
+                        setQualityTierFilter(tier)
+                      }
+                    }}
+                  >
+                    {qualityTierData.map((entry) => (
+                      <Cell
+                        key={entry.tier}
+                        fill={entry.tier === 'high' ? '#10b981' : entry.tier === 'medium' ? '#f59e0b' : '#ef4444'}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="border border-gray-100 rounded-lg p-3">
+            <p className="text-sm font-medium text-gray-800 mb-2">Recommendation Funnel</p>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={recommendationFunnelData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="stage" />
+                  <YAxis allowDecimals={false} width={40} />
+                  <Tooltip formatter={(value) => formatNumber(Number(value ?? 0))} />
+                  <Bar
+                    dataKey="value"
+                    fill="#7c3aed"
+                    radius={[6, 6, 0, 0]}
+                    onClick={(payload: any) => {
+                      const stage = String(payload?.stage || '').toLowerCase()
+                      if (stage) {
+                        setRecommendationStatusFilter(stage)
+                      }
+                    }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <Card title="Data Quality Gate" subtitle="Phase 6 data quality scoring for recommendation readiness">
-        {dataQuality.length === 0 ? (
+        {filteredDataQuality.length === 0 ? (
           <div className="text-sm text-gray-500">No data-quality records available.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {dataQuality.slice(0, 6).map((dq) => (
+            {filteredDataQuality.slice(0, 6).map((dq) => (
               <div key={dq.inventory_id} className="border border-gray-100 rounded-lg p-3">
                 <p className="text-xs text-gray-500">Inventory #{dq.inventory_id} · Product #{dq.product_id}</p>
                 <p className="text-sm font-semibold text-gray-900 mt-1">{dq.location}</p>
