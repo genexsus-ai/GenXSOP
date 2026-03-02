@@ -6,7 +6,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.schemas.sop_cycle import SOPCycleCreate, SOPCycleUpdate, SOPCycleResponse, SOPCycleListResponse
+from app.schemas.sop_cycle import (
+    SOPCycleCreate,
+    SOPCycleUpdate,
+    SOPCycleResponse,
+    SOPCycleListResponse,
+    SOPExecutiveScorecard,
+)
 from app.dependencies import get_current_user, require_roles
 from app.services.sop_cycle_service import SOPCycleService
 
@@ -85,3 +91,12 @@ def complete_sop_cycle(
     current_user: User = Depends(require_roles(EXECUTIVE_ROLES)),
 ):
     return service.complete_cycle(cycle_id, user_id=current_user.id)
+
+
+@router.get("/{cycle_id}/executive-scorecard", response_model=SOPExecutiveScorecard)
+def get_executive_scorecard(
+    cycle_id: int,
+    service: SOPCycleService = Depends(get_sop_service),
+    _: User = Depends(require_roles(EXECUTIVE_ROLES)),
+):
+    return service.get_executive_scorecard(cycle_id)

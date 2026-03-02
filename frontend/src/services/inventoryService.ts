@@ -11,10 +11,15 @@ import type {
   InventoryRecommendationGenerateRequest,
   InventoryPolicyRecommendation,
   InventoryRecommendationDecisionRequest,
+  InventoryRecommendationApproveRequest,
   InventoryRebalanceRecommendation,
   InventoryAutoApplyRequest,
   InventoryAutoApplyResponse,
   InventoryControlTowerSummary,
+  InventoryDataQuality,
+  InventoryEscalationItem,
+  InventoryWorkingCapitalSummary,
+  InventoryAssessmentScorecard,
 } from '@/types'
 
 /**
@@ -129,6 +134,11 @@ export const inventoryService = {
     return normalizeRecommendation(res.data)
   },
 
+  async approveRecommendation(id: number, payload: InventoryRecommendationApproveRequest): Promise<InventoryPolicyRecommendation> {
+    const res = await api.post<InventoryPolicyRecommendation>(`/inventory/recommendations/${id}/approve`, payload)
+    return normalizeRecommendation(res.data)
+  },
+
   async getRebalanceRecommendations(params?: { product_id?: number; min_transfer_qty?: number }): Promise<InventoryRebalanceRecommendation[]> {
     const res = await api.get<InventoryRebalanceRecommendation[]>('/inventory/rebalance/recommendations', { params })
     return (res.data || []).map(normalizeRebalance)
@@ -141,6 +151,26 @@ export const inventoryService = {
 
   async getControlTowerSummary(): Promise<InventoryControlTowerSummary> {
     const res = await api.get<InventoryControlTowerSummary>('/inventory/control-tower/summary')
+    return res.data
+  },
+
+  async getDataQuality(params?: { product_id?: number; location?: string }): Promise<InventoryDataQuality[]> {
+    const res = await api.get<InventoryDataQuality[]>('/inventory/data-quality', { params })
+    return res.data
+  },
+
+  async getEscalations(): Promise<InventoryEscalationItem[]> {
+    const res = await api.get<InventoryEscalationItem[]>('/inventory/control-tower/escalations')
+    return res.data
+  },
+
+  async getWorkingCapitalSummary(): Promise<InventoryWorkingCapitalSummary> {
+    const res = await api.get<InventoryWorkingCapitalSummary>('/inventory/finance/working-capital')
+    return res.data
+  },
+
+  async getAssessmentScorecard(): Promise<InventoryAssessmentScorecard> {
+    const res = await api.get<InventoryAssessmentScorecard>('/inventory/assessment/scorecard')
     return res.data
   },
 

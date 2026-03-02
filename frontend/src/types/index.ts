@@ -319,6 +319,8 @@ export interface InventoryRecommendationGenerateRequest {
   location?: string
   min_confidence?: number
   max_items?: number
+  enforce_quality_gate?: boolean
+  min_quality_score?: number
 }
 
 export interface InventoryPolicyRecommendation {
@@ -346,10 +348,15 @@ export interface InventoryRecommendationDecisionRequest {
   notes?: string
 }
 
+export interface InventoryRecommendationApproveRequest {
+  notes?: string
+}
+
 export interface InventoryAutoApplyRequest {
   min_confidence?: number
   max_demand_pressure?: number
   max_items?: number
+  min_quality_score?: number
   dry_run?: boolean
 }
 
@@ -380,6 +387,54 @@ export interface InventoryControlTowerSummary {
   open_exceptions: number
   overdue_exceptions: number
   recommendation_backlog_risk: 'low' | 'medium' | 'high' | string
+}
+
+export interface InventoryDataQuality {
+  inventory_id: number
+  product_id: number
+  location: string
+  completeness_score: number
+  freshness_score: number
+  consistency_score: number
+  overall_score: number
+  quality_tier: 'low' | 'medium' | 'high' | string
+}
+
+export interface InventoryEscalationItem {
+  exception_id: number
+  inventory_id: number
+  product_id: number
+  location: string
+  severity: string
+  status: string
+  owner_user_id?: number
+  due_date?: string
+  escalation_level: string
+  escalation_reason: string
+}
+
+export interface InventoryWorkingCapitalSummary {
+  total_inventory_value: number
+  estimated_carrying_cost_annual: number
+  estimated_carrying_cost_monthly: number
+  excess_inventory_value: number
+  low_stock_exposure_value: number
+  inventory_health_index: number
+}
+
+export interface InventoryAssessmentAreaScore {
+  area: string
+  yes_count: number
+  total_count: number
+  score_0_to_3: number
+  rag: 'green' | 'amber' | 'red' | string
+}
+
+export interface InventoryAssessmentScorecard {
+  total_yes: number
+  total_checks: number
+  maturity_level: string
+  areas: InventoryAssessmentAreaScore[]
 }
 
 // ── Forecast ──────────────────────────────────────────────────────────────────
@@ -617,6 +672,26 @@ export interface Scenario {
   updated_at: string
 }
 
+export interface ScenarioTradeoffSummary {
+  scenario_id: number
+  status: string
+  period?: string
+  message?: string
+  tradeoff?: {
+    inventory_carrying_cost: number
+    stockout_penalty_cost: number
+    working_capital_delta: number
+    composite_score: number
+    open_inventory_exceptions: number
+    high_risk_exception_count: number
+  } | null
+  service_level?: {
+    baseline: number
+    scenario: number
+    delta: number
+  }
+}
+
 export interface CreateScenarioRequest {
   name: string
   description?: string
@@ -655,6 +730,34 @@ export interface SOPCycle {
   overall_status: SOPCycleStatus
   created_at: string
   updated_at: string
+}
+
+export interface SOPExecutiveScorecard {
+  cycle_id: number
+  cycle_name: string
+  period: string
+  scenario_reference?: string
+  service: {
+    baseline_service_level: number
+    scenario_service_level: number
+    delta_service_level: number
+  }
+  cost: {
+    inventory_carrying_cost: number
+    stockout_penalty_cost: number
+    composite_tradeoff_score: number
+  }
+  cash: {
+    working_capital_delta: number
+    inventory_value_estimate: number
+  }
+  risk: {
+    open_exceptions: number
+    high_risk_exceptions: number
+    pending_recommendations: number
+    backlog_risk: 'low' | 'medium' | 'high' | string
+  }
+  decision_signal: 'recommended' | 'review_required' | 'not_recommended' | string
 }
 
 export interface CreateSOPCycleRequest {

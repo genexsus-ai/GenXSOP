@@ -14,6 +14,10 @@ import type {
   InventoryPolicyRecommendation,
   InventoryRebalanceRecommendation,
   InventoryControlTowerSummary,
+  InventoryDataQuality,
+  InventoryEscalationItem,
+  InventoryWorkingCapitalSummary,
+  InventoryAssessmentScorecard,
 } from '@/types'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -30,6 +34,10 @@ export function InventoryPage() {
   const [recommendations, setRecommendations] = useState<InventoryPolicyRecommendation[]>([])
   const [rebalance, setRebalance] = useState<InventoryRebalanceRecommendation[]>([])
   const [controlTower, setControlTower] = useState<InventoryControlTowerSummary | null>(null)
+  const [dataQuality, setDataQuality] = useState<InventoryDataQuality[]>([])
+  const [escalations, setEscalations] = useState<InventoryEscalationItem[]>([])
+  const [workingCapital, setWorkingCapital] = useState<InventoryWorkingCapitalSummary | null>(null)
+  const [assessment, setAssessment] = useState<InventoryAssessmentScorecard | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [optimizationLoading, setOptimizationLoading] = useState(false)
@@ -65,6 +73,14 @@ export function InventoryPage() {
       setRebalance(rb)
       const tower = await inventoryService.getControlTowerSummary()
       setControlTower(tower)
+      const quality = await inventoryService.getDataQuality()
+      setDataQuality(quality)
+      const esc = await inventoryService.getEscalations()
+      setEscalations(esc)
+      const wc = await inventoryService.getWorkingCapitalSummary()
+      setWorkingCapital(wc)
+      const asmt = await inventoryService.getAssessmentScorecard()
+      setAssessment(asmt)
     } catch {
       // handled
     } finally {
@@ -172,6 +188,30 @@ export function InventoryPage() {
     }
   }
 
+  const approveRecommendation = async (recommendationId: number) => {
+    try {
+      await inventoryService.approveRecommendation(recommendationId, { notes: 'Planner approved high-impact change' })
+      toast.success('Recommendation approved')
+      await load()
+    } catch {
+      // handled globally
+    }
+  }
+
+  const applyApprovedRecommendation = async (recommendationId: number) => {
+    try {
+      await inventoryService.decideRecommendation(recommendationId, {
+        decision: 'accepted',
+        apply_changes: true,
+        notes: 'Apply approved recommendation',
+      })
+      toast.success('Approved recommendation applied')
+      await load()
+    } catch {
+      // handled globally
+    }
+  }
+
   const autoApplyRecommendations = async () => {
     setAutoApplyLoading(true)
     try {
@@ -216,6 +256,95 @@ export function InventoryPage() {
           <KPICard title="Overdue Exceptions" value={controlTower.overdue_exceptions} icon={<AlertTriangle className="h-4 w-4" />} color="red"
             subtitle={`Backlog risk: ${controlTower.recommendation_backlog_risk}`} />
         </div>
+      )}
+
+      <Card title="Data Quality Gate" subtitle="Phase 6 data quality scoring for recommendation readiness">
+        {dataQuality.length === 0 ? (
+          <div className="text-sm text-gray-500">No data-quality records available.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {dataQuality.slice(0, 6).map((dq) => (
+              <div key={dq.inventory_id} className="border border-gray-100 rounded-lg p-3">
+                <p className="text-xs text-gray-500">Inventory #{dq.inventory_id} · Product #{dq.product_id}</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{dq.location}</p>
+                <p className={`text-xs mt-1 ${dq.quality_tier === 'high' ? 'text-emerald-600' : dq.quality_tier === 'medium' ? 'text-amber-600' : 'text-red-600'}`}>
+                  Tier: {dq.quality_tier.toUpperCase()} · Overall: {(dq.overall_score * 100).toFixed(0)}%
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {workingCapital && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard title="Inventory Value" value={formatCurrency(workingCapital.total_inventory_value)} icon={<Package className="h-4 w-4" />} color="blue" />
+          <KPICard title="Annual Carry Cost" value={formatCurrency(workingCapital.estimated_carrying_cost_annual)} icon={<Sparkles className="h-4 w-4" />} color="purple" />
+          <KPICard title="Excess Value" value={formatCurrency(workingCapital.excess_inventory_value)} icon={<AlertTriangle className="h-4 w-4" />} color="amber" />
+          <KPICard title="Health Index" value={`${workingCapital.inventory_health_index}%`} icon={<Bot className="h-4 w-4" />} color="emerald" />
+        </div>
+      )}
+
+      <Card title="Control Tower Escalations" subtitle="Phase 7 SLA and severity-based exception escalation feed">
+        {escalations.length === 0 ? (
+          <div className="text-sm text-gray-500">No active escalations.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {['Level', 'Exception', 'Product', 'Location', 'Status', 'Due Date', 'Reason'].map((h) => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {escalations.map((e) => (
+                  <tr key={e.exception_id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3"><StatusBadge status={e.escalation_level === 'L2' ? 'critical' : 'warning'} size="sm" /></td>
+                    <td className="px-4 py-3 text-gray-700">#{e.exception_id}</td>
+                    <td className="px-4 py-3 text-gray-700">#{e.product_id}</td>
+                    <td className="px-4 py-3 text-gray-700">{e.location}</td>
+                    <td className="px-4 py-3"><StatusBadge status={e.status} size="sm" /></td>
+                    <td className="px-4 py-3 text-gray-700">{e.due_date ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-700">{e.escalation_reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {assessment && (
+        <Card title="Optimization Assessment Scorecard" subtitle="Phase 8 executive maturity scorecard">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-gray-700">{assessment.maturity_level}</p>
+            <p className="text-xs text-gray-500">Checks: {assessment.total_yes}/{assessment.total_checks}</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  {['Area', 'Score', 'RAG'].map((h) => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {assessment.areas.map((a) => (
+                  <tr key={a.area} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-gray-700">{a.area}</td>
+                    <td className="px-4 py-3 text-gray-700">{a.yes_count}/{a.total_count}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={a.rag === 'green' ? 'normal' : a.rag === 'amber' ? 'warning' : 'critical'} size="sm" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       <Card padding={false}>
@@ -444,7 +573,7 @@ export function InventoryPage() {
         )}
       </Card>
 
-      <Card title="AI Policy Recommendations" subtitle="Phase 3 recommendation queue for planner review">
+      <Card title="AI Policy Recommendations" subtitle="Phase 3/6 queue with maker-checker approval support">
         {recommendations.length === 0 ? (
           <div className="text-sm text-gray-500">No pending recommendations. Generate recommendations to start review.</div>
         ) : (
@@ -452,7 +581,7 @@ export function InventoryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  {['Confidence', 'Product', 'Location', 'Safety Stock', 'ROP', 'Max Stock', 'Rationale', 'Action'].map((h) => (
+                  {['Confidence', 'Product', 'Location', 'Safety Stock', 'ROP', 'Max Stock', 'Status', 'Rationale', 'Action'].map((h) => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
@@ -466,16 +595,26 @@ export function InventoryPage() {
                     <td className="px-4 py-3 tabular-nums text-gray-700">{formatNumber(rec.recommended_safety_stock)}</td>
                     <td className="px-4 py-3 tabular-nums text-gray-700">{formatNumber(rec.recommended_reorder_point)}</td>
                     <td className="px-4 py-3 tabular-nums text-gray-700">{rec.recommended_max_stock != null ? formatNumber(rec.recommended_max_stock) : '—'}</td>
+                    <td className="px-4 py-3"><StatusBadge status={rec.status} size="sm" /></td>
                     <td className="px-4 py-3 text-gray-700 max-w-sm">{rec.rationale}</td>
                     <td className="px-4 py-3">
                       {canUpdate ? (
                         <div className="flex gap-1">
-                          <Button variant="outline" size="sm" onClick={() => decideRecommendation(rec.id, 'accepted')}>
-                            Accept
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => decideRecommendation(rec.id, 'rejected')}>
-                            Reject
-                          </Button>
+                          {rec.status === 'pending' && (
+                            <>
+                              <Button variant="outline" size="sm" onClick={() => approveRecommendation(rec.id)}>
+                                Approve
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => decideRecommendation(rec.id, 'rejected')}>
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          {rec.status === 'accepted' && (
+                            <Button variant="outline" size="sm" onClick={() => applyApprovedRecommendation(rec.id)}>
+                              Apply
+                            </Button>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-gray-400">—</span>

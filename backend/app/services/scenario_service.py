@@ -334,3 +334,37 @@ class ScenarioService:
             }
             for s in scenarios
         ]
+
+    def get_tradeoff_summary(self, scenario_id: int) -> dict:
+        scenario = self.get_scenario(scenario_id)
+        if not scenario.results:
+            return {
+                "scenario_id": scenario.id,
+                "status": scenario.status,
+                "message": "Scenario has no computed results yet. Run the scenario first.",
+                "tradeoff": None,
+            }
+
+        results = json.loads(scenario.results) if isinstance(scenario.results, str) else scenario.results
+        tradeoff = (results or {}).get("tradeoff") or {}
+        baseline = (results or {}).get("baseline") or {}
+        scenario_view = (results or {}).get("scenario") or {}
+
+        return {
+            "scenario_id": scenario.id,
+            "status": scenario.status,
+            "period": (results or {}).get("period"),
+            "tradeoff": {
+                "inventory_carrying_cost": tradeoff.get("inventory_carrying_cost", 0),
+                "stockout_penalty_cost": tradeoff.get("stockout_penalty_cost", 0),
+                "working_capital_delta": tradeoff.get("working_capital_delta", 0),
+                "composite_score": tradeoff.get("composite_score", 0),
+                "open_inventory_exceptions": tradeoff.get("open_inventory_exceptions", 0),
+                "high_risk_exception_count": tradeoff.get("high_risk_exception_count", 0),
+            },
+            "service_level": {
+                "baseline": baseline.get("service_level", 0),
+                "scenario": scenario_view.get("service_level", 0),
+                "delta": (scenario_view.get("service_level", 0) or 0) - (baseline.get("service_level", 0) or 0),
+            },
+        }

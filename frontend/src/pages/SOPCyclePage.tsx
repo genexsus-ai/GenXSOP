@@ -7,8 +7,15 @@ import { Button } from '@/components/common/Button'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonCard } from '@/components/common/LoadingSpinner'
-import { formatPeriod, formatDate } from '@/utils/formatters'
-import type { SOPCycle, CreateSOPCycleRequest, SOPStepStatus, UpdateSOPCycleRequest, User } from '@/types'
+import { formatPeriod, formatDate, formatCurrency, formatPercent } from '@/utils/formatters'
+import type {
+  SOPCycle,
+  SOPExecutiveScorecard,
+  CreateSOPCycleRequest,
+  SOPStepStatus,
+  UpdateSOPCycleRequest,
+  User,
+} from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -52,6 +59,7 @@ export function SOPCyclePage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [scorecardByCycleId, setScorecardByCycleId] = useState<Record<number, SOPExecutiveScorecard>>({})
   const [editingCycle, setEditingCycle] = useState<SOPCycle | null>(null)
   const [advancingId, setAdvancingId] = useState<number | null>(null)
   const [savingId, setSavingId] = useState<number | null>(null)
@@ -65,6 +73,26 @@ export function SOPCyclePage() {
       const res = await sopService.getCycles({ page_size: 20 })
       setCycles(res.items)
       setTotal(res.total)
+
+      if (canCompleteCycle) {
+        const summaries = await Promise.all(
+          res.items.map(async (c) => {
+            try {
+              const sc = await sopService.getExecutiveScorecard(c.id)
+              return [c.id, sc] as const
+            } catch {
+              return null
+            }
+          })
+        )
+        const next: Record<number, SOPExecutiveScorecard> = {}
+        summaries.forEach((entry) => {
+          if (entry) next[entry[0]] = entry[1]
+        })
+        setScorecardByCycleId(next)
+      } else {
+        setScorecardByCycleId({})
+      }
     } catch {
       // handled
     } finally {
@@ -291,6 +319,41 @@ export function SOPCyclePage() {
 
                 {cycle.notes && (
                   <p className="text-xs text-gray-500 mt-3 italic">{cycle.notes}</p>
+                )}
+
+                {scorecardByCycleId[cycle.id] && (
+                  <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+                    <p className="text-xs font-medium text-indigo-800 mb-2">Executive Service/Cost/Cash Board</p>
+                    {!scorecardByCycleId[cycle.id].scenario_reference && (
+                      <p className="text-xs text-indigo-700 mb-2">
+                        No period-matched scenario found yet; showing baseline-only scorecard.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                      <div>
+                        <p className="text-xs text-indigo-700">Service Δ</p>
+                        <p className="text-sm font-semibold text-indigo-900">
+                          {formatPercent(scorecardByCycleId[cycle.id].service.delta_service_level, 1)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-indigo-700">Carry Cost</p>
+                        <p className="text-sm font-semibold text-indigo-900">
+                          {formatCurrency(scorecardByCycleId[cycle.id].cost.inventory_carrying_cost)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-indigo-700">Working Capital Δ</p>
+                        <p className="text-sm font-semibold text-indigo-900">
+                          {formatCurrency(scorecardByCycleId[cycle.id].cash.working_capital_delta)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-indigo-700">Decision Signal</p>
+                        <StatusBadge status={scorecardByCycleId[cycle.id].decision_signal} size="sm" />
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </Card>

@@ -138,6 +138,32 @@ class TestScenarioWorkflow:
         assert "working_capital_delta" in tradeoff
         assert "composite_score" in tradeoff
 
+    def test_get_tradeoff_summary_endpoint(self, client: TestClient, admin_headers, demand_plan, supply_plan, inventory):
+        create_resp = client.post("/api/v1/scenarios/", headers=admin_headers, json={
+            "name": "Tradeoff Summary Test",
+            "scenario_type": "what_if",
+            "parameters": {
+                "period": "2026-03-01",
+                "demand_change_pct": 5,
+                "supply_capacity_pct": -3,
+                "price_change_pct": 0,
+                "inventory_release_pct": 2,
+            },
+        })
+        assert create_resp.status_code == 201
+        scenario_id = create_resp.json()["id"]
+
+        run_resp = client.post(f"/api/v1/scenarios/{scenario_id}/run", headers=admin_headers)
+        assert run_resp.status_code == 200
+
+        summary_resp = client.get(f"/api/v1/scenarios/{scenario_id}/tradeoff-summary", headers=admin_headers)
+        assert summary_resp.status_code == 200
+        summary = summary_resp.json()
+        assert summary["scenario_id"] == scenario_id
+        assert "tradeoff" in summary
+        assert "service_level" in summary
+        assert "composite_score" in summary["tradeoff"]
+
 
 class TestScenarioComparison:
 

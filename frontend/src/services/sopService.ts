@@ -1,5 +1,11 @@
 import api from './api'
-import type { SOPCycle, CreateSOPCycleRequest, UpdateSOPCycleRequest, PaginatedResponse } from '@/types'
+import type {
+  SOPCycle,
+  SOPExecutiveScorecard,
+  CreateSOPCycleRequest,
+  UpdateSOPCycleRequest,
+  PaginatedResponse,
+} from '@/types'
 
 export const sopService = {
   async getCycles(params?: { page?: number; page_size?: number; status?: string }): Promise<PaginatedResponse<SOPCycle>> {
@@ -29,6 +35,11 @@ export const sopService = {
 
   async completeCycle(id: number, decisions?: string): Promise<SOPCycle> {
     const res = await api.post<SOPCycle>(`/sop-cycles/${id}/complete`, { decisions })
+    return res.data
+  },
+
+  async getExecutiveScorecard(id: number): Promise<SOPExecutiveScorecard> {
+    const res = await api.get<SOPExecutiveScorecard>(`/sop-cycles/${id}/executive-scorecard`)
     return res.data
   },
 }

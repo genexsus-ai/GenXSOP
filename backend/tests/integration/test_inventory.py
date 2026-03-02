@@ -289,3 +289,115 @@ class TestInventoryPhase45:
         assert "applied_recommendations" in summary
         assert "acceptance_rate_pct" in summary
         assert "recommendation_backlog_risk" in summary
+
+
+class TestInventoryPhase6:
+
+    def test_get_data_quality(self, client: TestClient, admin_headers, inventory):
+        resp = client.get("/api/v1/inventory/data-quality", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        item = data[0]
+        assert "inventory_id" in item
+        assert "overall_score" in item
+        assert "quality_tier" in item
+
+    def test_approve_then_apply_recommendation(self, client: TestClient, admin_headers, inventory):
+        gen_resp = client.post(
+            "/api/v1/inventory/recommendations/generate",
+            headers=admin_headers,
+            json={
+                "min_confidence": 0.5,
+                "max_items": 20,
+                "enforce_quality_gate": True,
+                "min_quality_score": 0.4,
+            },
+        )
+        assert gen_resp.status_code == 200
+        recs = gen_resp.json()
+        assert recs
+        rec_id = recs[0]["id"]
+
+        approve_resp = client.post(
+            f"/api/v1/inventory/recommendations/{rec_id}/approve",
+            headers=admin_headers,
+            json={"notes": "Approved by planner"},
+        )
+        assert approve_resp.status_code == 200
+        approved = approve_resp.json()
+        assert approved["status"] == "accepted"
+
+        apply_resp = client.post(
+            f"/api/v1/inventory/recommendations/{rec_id}/decision",
+            headers=admin_headers,
+            json={
+                "decision": "accepted",
+                "apply_changes": True,
+                "notes": "Apply after approval",
+            },
+        )
+        assert apply_resp.status_code == 200
+        applied = apply_resp.json()
+        assert applied["status"] == "applied"
+
+
+class TestInventoryPhase7:
+
+    def test_get_control_tower_escalations(self, client: TestClient, admin_headers, inventory):
+        # Create exceptions so escalation feed has evaluable items
+        run_resp = client.post(
+            "/api/v1/inventory/optimization/runs",
+            headers=admin_headers,
+            json={"service_level_target": 0.95, "lead_time_days": 14, "review_period_days": 7},
+        )
+        assert run_resp.status_code == 200
+
+        resp = client.get("/api/v1/inventory/control-tower/escalations", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        if data:
+            item = data[0]
+            assert "exception_id" in item
+            assert "escalation_level" in item
+            assert "escalation_reason" in item
+
+    def test_get_working_capital_summary(self, client: TestClient, admin_headers, inventory):
+        resp = client.get("/api/v1/inventory/finance/working-capital", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_inventory_value" in data
+        assert "estimated_carrying_cost_annual" in data
+        assert "inventory_health_index" in data
+
+
+class TestInventoryPhase8:
+
+    def test_get_assessment_scorecard(self, client: TestClient, admin_headers, inventory):
+        # Seed some activity for richer score output
+        _ = client.post(
+            "/api/v1/inventory/optimization/runs",
+            headers=admin_headers,
+            json={"service_level_target": 0.95, "lead_time_days": 14, "review_period_days": 7},
+        )
+        _ = client.post(
+            "/api/v1/inventory/recommendations/generate",
+            headers=admin_headers,
+            json={"min_confidence": 0.5, "max_items": 20},
+        )
+
+        resp = client.get("/api/v1/inventory/assessment/scorecard", headers=admin_headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_yes" in data
+        assert "total_checks" in data
+        assert "maturity_level" in data
+        assert "areas" in data
+        assert isinstance(data["areas"], list)
+        if data["areas"]:
+            area = data["areas"][0]
+            assert "area" in area
+            assert "yes_count" in area
+            assert "rag" in area

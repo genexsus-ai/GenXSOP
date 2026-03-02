@@ -27,10 +27,16 @@ from app.schemas.inventory import (
     InventoryRecommendationGenerateRequest,
     InventoryPolicyRecommendationView,
     InventoryRecommendationDecisionRequest,
+    InventoryRecommendationApproveRequest,
     InventoryRebalanceRecommendationView,
     InventoryAutoApplyRequest,
     InventoryAutoApplyResponse,
     InventoryControlTowerSummary,
+    InventoryDataQualityView,
+    InventoryEscalationItem,
+    InventoryWorkingCapitalSummary,
+    InventoryAssessmentScorecard,
+    InventoryAssessmentAreaScore,
 )
 from app.core.exceptions import EntityNotFoundException, to_http_exception
 from app.utils.events import get_event_bus, EntityUpdatedEvent
@@ -288,6 +294,10 @@ class InventoryService:
         recommendations: List[InventoryPolicyRecommendationView] = []
 
         for inv in scope[: payload.max_items]:
+            quality = self._compute_data_quality(inv)
+            if payload.enforce_quality_gate and quality.overall_score < payload.min_quality_score:
+                continue
+
             on_hand = inv.on_hand_qty or Decimal("0")
             allocated = inv.allocated_qty or Decimal("0")
             in_transit = inv.in_transit_qty or Decimal("0")
@@ -319,6 +329,8 @@ class InventoryService:
                 "on_hand_qty": float(on_hand),
                 "allocated_qty": float(allocated),
                 "in_transit_qty": float(in_transit),
+                "quality_score": quality.overall_score,
+                "quality_tier": quality.quality_tier,
             }
             rationale = (
                 f"AI tuning detected demand pressure {float(demand_pressure):.2f} with status '{inv.status}'. "
@@ -403,6 +415,11 @@ class InventoryService:
 
         inv = self.get_inventory(rec.inventory_id)
         if payload.decision == "accepted" and payload.apply_changes:
+            if self._requires_maker_checker(rec, inv) and rec.status != "accepted":
+                raise ValueError(
+                    "High-impact policy change requires approval before apply. "
+                    "Call recommendation approve endpoint first."
+                )
             inv = self._repo.update(
                 inv,
                 {
@@ -428,6 +445,179 @@ class InventoryService:
             )
         )
         return self._build_recommendation_view(rec, inv)
+
+    def approve_recommendation(
+        self,
+        recommendation_id: int,
+        payload: InventoryRecommendationApproveRequest,
+        user_id: int,
+    ) -> InventoryPolicyRecommendationView:
+        rec = self._recommendation_repo.get_by_id(recommendation_id)
+        if not rec:
+            raise to_http_exception(EntityNotFoundException("InventoryPolicyRecommendation", recommendation_id))
+        if rec.status in ("rejected", "applied"):
+            raise ValueError("Only pending recommendations can be approved.")
+
+        rec = self._recommendation_repo.update(
+            rec,
+            {
+                "status": "accepted",
+                "decision_notes": payload.notes or "Approved for application",
+                "decided_by": user_id,
+                "decided_at": datetime.utcnow(),
+            },
+        )
+        inv = self.get_inventory(rec.inventory_id)
+        return self._build_recommendation_view(rec, inv)
+
+    def get_data_quality(
+        self,
+        product_id: Optional[int] = None,
+        location: Optional[str] = None,
+    ) -> List[InventoryDataQualityView]:
+        scope = self._repo.list_for_policy(product_id=product_id, location=location)
+        return [self._compute_data_quality(inv) for inv in scope]
+
+    def get_escalations(self) -> List[InventoryEscalationItem]:
+        today = datetime.utcnow().date()
+        open_ex = self._exception_repo.list_filtered(status="open")
+        in_progress_ex = self._exception_repo.list_filtered(status="in_progress")
+        all_ex = open_ex + in_progress_ex
+        escalations: List[InventoryEscalationItem] = []
+
+        for ex in all_ex:
+            inv = self.get_inventory(ex.inventory_id)
+            due = ex.due_date
+            overdue_days = (today - due).days if due else 0
+            if ex.severity == "high" and (due is None or overdue_days >= 0):
+                level = "L2"
+                reason = "High-severity exception requires immediate escalation"
+            elif overdue_days >= 3:
+                level = "L2"
+                reason = f"Exception overdue by {overdue_days} days"
+            elif overdue_days > 0:
+                level = "L1"
+                reason = f"Exception overdue by {overdue_days} days"
+            else:
+                continue
+
+            escalations.append(
+                InventoryEscalationItem(
+                    exception_id=ex.id,
+                    inventory_id=ex.inventory_id,
+                    product_id=inv.product_id,
+                    location=inv.location,
+                    severity=ex.severity,
+                    status=ex.status,
+                    owner_user_id=ex.owner_user_id,
+                    due_date=ex.due_date,
+                    escalation_level=level,
+                    escalation_reason=reason,
+                )
+            )
+        return escalations
+
+    def get_working_capital_summary(self) -> InventoryWorkingCapitalSummary:
+        all_inv = self._repo.get_all_inventory()
+        total_value = sum(((inv.valuation or Decimal("0")) for inv in all_inv), Decimal("0"))
+        excess_value = sum(((inv.valuation or Decimal("0")) for inv in all_inv if inv.status == "excess"), Decimal("0"))
+        low_exposure = sum(((inv.valuation or Decimal("0")) for inv in all_inv if inv.status in ("low", "critical")), Decimal("0"))
+
+        annual_carrying_rate = Decimal("0.18")
+        annual_cost = (total_value * annual_carrying_rate).quantize(Decimal("0.01"))
+        monthly_cost = (annual_cost / Decimal("12")).quantize(Decimal("0.01"))
+
+        if total_value <= 0:
+            health_idx = 100.0
+        else:
+            risk_ratio = (excess_value + low_exposure) / total_value
+            health_idx = float(max(Decimal("0"), Decimal("100") - (risk_ratio * Decimal("100"))).quantize(Decimal("0.1")))
+
+        return InventoryWorkingCapitalSummary(
+            total_inventory_value=total_value.quantize(Decimal("0.01")),
+            estimated_carrying_cost_annual=annual_cost,
+            estimated_carrying_cost_monthly=monthly_cost,
+            excess_inventory_value=excess_value.quantize(Decimal("0.01")),
+            low_stock_exposure_value=low_exposure.quantize(Decimal("0.01")),
+            inventory_health_index=health_idx,
+        )
+
+    def get_assessment_scorecard(self) -> InventoryAssessmentScorecard:
+        inv = self._repo.get_all_inventory()
+        recs_pending = self._recommendation_repo.list_filtered(status="pending")
+        recs_applied = self._recommendation_repo.list_filtered(status="applied")
+        exceptions_open = self._exception_repo.list_filtered(status="open")
+        exceptions_in_progress = self._exception_repo.list_filtered(status="in_progress")
+        all_exceptions = exceptions_open + exceptions_in_progress
+
+        checks = {
+            "Policy Logic": [
+                any((i.safety_stock or Decimal("0")) > 0 for i in inv),
+                any((i.reorder_point or Decimal("0")) > 0 for i in inv),
+                len({i.status for i in inv}) >= 2,
+            ],
+            "Forecast Integration": [
+                any(r.signals_json and "demand_pressure" in r.signals_json for r in (recs_pending + recs_applied)),
+                any(r.signals_json and "quality_score" in r.signals_json for r in (recs_pending + recs_applied)),
+                any(r.confidence_score is not None for r in (recs_pending + recs_applied)),
+            ],
+            "Supply Constraints": [
+                any((i.max_stock or Decimal("0")) > 0 for i in inv),
+                len(all_exceptions) > 0,
+                any(ex.exception_type in ("stockout_risk", "excess_risk") for ex in all_exceptions),
+            ],
+            "Governance & Cadence": [
+                len(all_exceptions) > 0,
+                any(r.decided_by is not None for r in (recs_pending + recs_applied)),
+                any(r.decision_notes for r in (recs_pending + recs_applied)),
+            ],
+            "Outcome KPIs": [
+                len(recs_applied) > 0,
+                any(i.status == "normal" for i in inv),
+                any(i.status in ("low", "critical", "excess") for i in inv),
+            ],
+        }
+
+        def _rag(yes_count: int, total_count: int) -> str:
+            ratio = (yes_count / total_count) if total_count else 0
+            if ratio >= 0.8:
+                return "green"
+            if ratio >= 0.4:
+                return "amber"
+            return "red"
+
+        areas: List[InventoryAssessmentAreaScore] = []
+        total_yes = 0
+        total_checks = 0
+
+        for area, values in checks.items():
+            yes_count = sum(1 for v in values if v)
+            total_count = len(values)
+            total_yes += yes_count
+            total_checks += total_count
+            areas.append(
+                InventoryAssessmentAreaScore(
+                    area=area,
+                    yes_count=yes_count,
+                    total_count=total_count,
+                    score_0_to_3=yes_count,
+                    rag=_rag(yes_count, total_count),
+                )
+            )
+
+        if total_yes <= 5:
+            maturity = "Level 1: Transactional / static settings"
+        elif total_yes <= 11:
+            maturity = "Level 2: Partial optimization"
+        else:
+            maturity = "Level 3: Mature optimization foundation"
+
+        return InventoryAssessmentScorecard(
+            total_yes=total_yes,
+            total_checks=total_checks,
+            maturity_level=maturity,
+            areas=areas,
+        )
 
     def get_rebalance_recommendations(
         self,
@@ -502,14 +692,21 @@ class InventoryService:
                     signals = {}
             demand_pressure = Decimal(str(signals.get("demand_pressure", 0)))
             confidence = Decimal(str(rec.confidence_score or 0))
+            quality_score = Decimal(str(signals.get("quality_score", 0)))
             if confidence < Decimal(str(payload.min_confidence)):
                 continue
             if demand_pressure > Decimal(str(payload.max_demand_pressure)):
+                continue
+            if quality_score < Decimal(str(payload.min_quality_score)):
                 continue
             eligible.append(rec)
 
         if not payload.dry_run:
             for rec in eligible:
+                inv = self.get_inventory(rec.inventory_id)
+                if self._requires_maker_checker(rec, inv):
+                    # Guardrail: autonomous flow cannot bypass maker-checker.
+                    continue
                 view = self.decide_recommendation(
                     rec.id,
                     InventoryRecommendationDecisionRequest(
@@ -757,6 +954,55 @@ class InventoryService:
         lead_time_adj = Decimal("0.05") if lead_time_days > Decimal("20") else Decimal("0")
         score = base + status_adj + pressure_adj - lead_time_adj
         return min(Decimal("0.95"), max(Decimal("0.40"), score)).quantize(Decimal("0.0001"))
+
+    def _compute_data_quality(self, inv: Inventory) -> InventoryDataQualityView:
+        completeness_points = 0
+        if inv.on_hand_qty is not None:
+            completeness_points += 1
+        if inv.safety_stock is not None:
+            completeness_points += 1
+        if inv.reorder_point is not None:
+            completeness_points += 1
+        if inv.max_stock is not None:
+            completeness_points += 1
+        if inv.valuation is not None:
+            completeness_points += 1
+        completeness_score = round(completeness_points / 5, 4)
+
+        freshness_score = 1.0
+        if inv.updated_at:
+            age_hours = (datetime.utcnow() - inv.updated_at).total_seconds() / 3600
+            if age_hours > 168:
+                freshness_score = 0.5
+            elif age_hours > 72:
+                freshness_score = 0.75
+
+        consistency_score = 1.0
+        if (inv.on_hand_qty or Decimal("0")) < Decimal("0"):
+            consistency_score = 0.0
+        elif inv.max_stock and inv.reorder_point and inv.max_stock < inv.reorder_point:
+            consistency_score = 0.5
+
+        overall = round((0.4 * completeness_score) + (0.3 * freshness_score) + (0.3 * consistency_score), 4)
+        tier = "high" if overall >= 0.85 else "medium" if overall >= 0.60 else "low"
+        return InventoryDataQualityView(
+            inventory_id=inv.id,
+            product_id=inv.product_id,
+            location=inv.location,
+            completeness_score=completeness_score,
+            freshness_score=round(freshness_score, 4),
+            consistency_score=round(consistency_score, 4),
+            overall_score=overall,
+            quality_tier=tier,
+        )
+
+    def _requires_maker_checker(self, rec, inv: Inventory) -> bool:
+        base = inv.reorder_point or Decimal("1")
+        if base <= 0:
+            return False
+        delta = abs((rec.recommended_reorder_point or Decimal("0")) - base)
+        pct = delta / base
+        return pct >= Decimal("0.20")
 
     def _build_recommendation_view(self, rec, inv: Inventory) -> InventoryPolicyRecommendationView:
         signals = None

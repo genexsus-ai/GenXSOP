@@ -112,3 +112,12 @@ def compare_scenarios(
     _: User = Depends(get_current_user),
 ):
     return service.compare_scenarios(ids)
+
+
+@router.get("/{scenario_id}/tradeoff-summary")
+def get_tradeoff_summary(
+    scenario_id: int,
+    service: ScenarioService = Depends(get_scenario_service),
+    _: User = Depends(get_current_user),
+):
+    return service.get_tradeoff_summary(scenario_id)

@@ -15,13 +15,29 @@ from app.schemas.inventory import (
     InventoryRecommendationGenerateRequest,
     InventoryPolicyRecommendationView,
     InventoryRecommendationDecisionRequest,
+    InventoryRecommendationApproveRequest,
     InventoryRebalanceRecommendationView,
     InventoryAutoApplyRequest,
     InventoryAutoApplyResponse,
     InventoryControlTowerSummary,
+    InventoryDataQualityView,
+    InventoryEscalationItem,
+    InventoryWorkingCapitalSummary,
+    InventoryAssessmentAreaScore,
+    InventoryAssessmentScorecard,
 )
 from app.schemas.scenario import ScenarioCreate, ScenarioUpdate, ScenarioResponse, ScenarioListResponse
-from app.schemas.sop_cycle import SOPCycleCreate, SOPCycleUpdate, SOPCycleResponse, SOPCycleListResponse
+from app.schemas.sop_cycle import (
+    SOPCycleCreate,
+    SOPCycleUpdate,
+    SOPCycleResponse,
+    SOPCycleListResponse,
+    SOPExecutiveServiceView,
+    SOPExecutiveCostView,
+    SOPExecutiveCashView,
+    SOPExecutiveRiskView,
+    SOPExecutiveScorecard,
+)
 from app.schemas.kpi import KPIMetricCreate, KPIMetricResponse, KPIMetricListResponse, KPIDashboardData
 from app.schemas.integration import (
     IntegrationRequestMeta,

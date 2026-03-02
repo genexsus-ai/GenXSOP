@@ -97,6 +97,9 @@ export function getStatusColor(status: string): string {
     excess: 'badge-excess',
     pending: 'badge-draft',
     in_progress: 'badge-submitted',
+    recommended: 'badge-approved',
+    review_required: 'badge-submitted',
+    not_recommended: 'badge-rejected',
   }
   return map[status] ?? 'badge-draft'
 }

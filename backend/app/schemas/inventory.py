@@ -76,6 +76,8 @@ class InventoryRecommendationGenerateRequest(BaseModel):
     location: Optional[str] = None
     min_confidence: float = Field(0.55, ge=0.0, le=1.0)
     max_items: int = Field(100, ge=1, le=500)
+    enforce_quality_gate: bool = True
+    min_quality_score: float = Field(0.60, ge=0.0, le=1.0)
 
 
 class InventoryPolicyRecommendationView(BaseModel):
@@ -103,10 +105,15 @@ class InventoryRecommendationDecisionRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
 
 
+class InventoryRecommendationApproveRequest(BaseModel):
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
 class InventoryAutoApplyRequest(BaseModel):
     min_confidence: float = Field(0.80, ge=0.0, le=1.0)
     max_demand_pressure: float = Field(1.20, ge=0.0, le=10.0)
     max_items: int = Field(100, ge=1, le=1000)
+    min_quality_score: float = Field(0.60, ge=0.0, le=1.0)
     dry_run: bool = False
 
 
@@ -137,6 +144,54 @@ class InventoryControlTowerSummary(BaseModel):
     open_exceptions: int
     overdue_exceptions: int
     recommendation_backlog_risk: str
+
+
+class InventoryDataQualityView(BaseModel):
+    inventory_id: int
+    product_id: int
+    location: str
+    completeness_score: float
+    freshness_score: float
+    consistency_score: float
+    overall_score: float
+    quality_tier: str
+
+
+class InventoryEscalationItem(BaseModel):
+    exception_id: int
+    inventory_id: int
+    product_id: int
+    location: str
+    severity: str
+    status: str
+    owner_user_id: Optional[int] = None
+    due_date: Optional[date] = None
+    escalation_level: str
+    escalation_reason: str
+
+
+class InventoryWorkingCapitalSummary(BaseModel):
+    total_inventory_value: Decimal
+    estimated_carrying_cost_annual: Decimal
+    estimated_carrying_cost_monthly: Decimal
+    excess_inventory_value: Decimal
+    low_stock_exposure_value: Decimal
+    inventory_health_index: float
+
+
+class InventoryAssessmentAreaScore(BaseModel):
+    area: str
+    yes_count: int
+    total_count: int
+    score_0_to_3: int
+    rag: str
+
+
+class InventoryAssessmentScorecard(BaseModel):
+    total_yes: int
+    total_checks: int
+    maturity_level: str
+    areas: List[InventoryAssessmentAreaScore]
 
 
 class InventoryOptimizationRunResponse(BaseModel):

@@ -21,10 +21,15 @@ from app.schemas.inventory import (
     InventoryRecommendationGenerateRequest,
     InventoryPolicyRecommendationView,
     InventoryRecommendationDecisionRequest,
+    InventoryRecommendationApproveRequest,
     InventoryRebalanceRecommendationView,
     InventoryAutoApplyRequest,
     InventoryAutoApplyResponse,
     InventoryControlTowerSummary,
+    InventoryDataQualityView,
+    InventoryEscalationItem,
+    InventoryWorkingCapitalSummary,
+    InventoryAssessmentScorecard,
 )
 from app.dependencies import get_current_user, require_roles
 from app.services.inventory_service import InventoryService
@@ -142,6 +147,16 @@ def decide_inventory_policy_recommendation(
     return service.decide_recommendation(recommendation_id, payload, user_id=current_user.id)
 
 
+@router.post("/recommendations/{recommendation_id}/approve", response_model=InventoryPolicyRecommendationView)
+def approve_inventory_policy_recommendation(
+    recommendation_id: int,
+    payload: InventoryRecommendationApproveRequest,
+    service: InventoryService = Depends(get_inventory_service),
+    current_user: User = Depends(require_roles(MANAGER_ROLES)),
+):
+    return service.approve_recommendation(recommendation_id, payload, user_id=current_user.id)
+
+
 @router.get("/rebalance/recommendations", response_model=list[InventoryRebalanceRecommendationView])
 def get_inventory_rebalance_recommendations(
     product_id: Optional[int] = None,
@@ -170,6 +185,40 @@ def get_inventory_control_tower_summary(
     _: User = Depends(get_current_user),
 ):
     return service.get_control_tower_summary()
+
+
+@router.get("/data-quality", response_model=list[InventoryDataQualityView])
+def get_inventory_data_quality(
+    product_id: Optional[int] = None,
+    location: Optional[str] = None,
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(get_current_user),
+):
+    return service.get_data_quality(product_id=product_id, location=location)
+
+
+@router.get("/control-tower/escalations", response_model=list[InventoryEscalationItem])
+def get_inventory_control_tower_escalations(
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(get_current_user),
+):
+    return service.get_escalations()
+
+
+@router.get("/finance/working-capital", response_model=InventoryWorkingCapitalSummary)
+def get_inventory_working_capital_summary(
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(get_current_user),
+):
+    return service.get_working_capital_summary()
+
+
+@router.get("/assessment/scorecard", response_model=InventoryAssessmentScorecard)
+def get_inventory_assessment_scorecard(
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(get_current_user),
+):
+    return service.get_assessment_scorecard()
 
 
 @router.get("/{inventory_id}", response_model=InventoryResponse)

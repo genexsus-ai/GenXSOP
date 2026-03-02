@@ -7,7 +7,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { Modal } from '@/components/common/Modal'
 import { SkeletonCard } from '@/components/common/LoadingSpinner'
 import { formatCurrency, formatPercent, formatDate } from '@/utils/formatters'
-import type { Scenario, CreateScenarioRequest } from '@/types'
+import type { Scenario, CreateScenarioRequest, ScenarioTradeoffSummary } from '@/types'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/store/authStore'
 import { can } from '@/auth/permissions'
@@ -28,6 +28,7 @@ export function ScenariosPage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [tradeoffByScenarioId, setTradeoffByScenarioId] = useState<Record<number, ScenarioTradeoffSummary>>({})
   const [form, setForm] = useState<Partial<CreateScenarioRequest>>({
     scenario_type: 'what_if',
     parameters: {
@@ -57,6 +58,27 @@ export function ScenariosPage() {
       const res = await scenarioService.getScenarios({ page_size: 50 })
       setScenarios(res.items)
       setTotal(res.total)
+
+      const completed = res.items.filter((s) => s.status === 'completed' || s.status === 'approved')
+      if (completed.length > 0) {
+        const summaries = await Promise.all(
+          completed.map(async (s) => {
+            try {
+              const summary = await scenarioService.getTradeoffSummary(s.id)
+              return [s.id, summary] as const
+            } catch {
+              return null
+            }
+          })
+        )
+        const next: Record<number, ScenarioTradeoffSummary> = {}
+        summaries.forEach((entry) => {
+          if (entry) next[entry[0]] = entry[1]
+        })
+        setTradeoffByScenarioId(next)
+      } else {
+        setTradeoffByScenarioId({})
+      }
     } catch {
       // handled
     } finally {
@@ -205,6 +227,23 @@ export function ScenariosPage() {
                       </p>
                     </div>
                   )}
+                </div>
+              )}
+
+              {tradeoffByScenarioId[scenario.id]?.tradeoff && (
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="bg-gray-50 rounded-lg p-2">
+                    <p className="text-xs text-gray-500">Carrying Cost</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formatCurrency(tradeoffByScenarioId[scenario.id].tradeoff!.inventory_carrying_cost)}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2">
+                    <p className="text-xs text-gray-500">Working Capital Δ</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {formatCurrency(tradeoffByScenarioId[scenario.id].tradeoff!.working_capital_delta)}
+                    </p>
+                  </div>
                 </div>
               )}
 

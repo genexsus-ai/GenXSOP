@@ -392,6 +392,45 @@ curl -s -X POST "http://localhost:8000/api/v1/sop-cycles/1/complete" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Executive scorecard (admin/executive):
+
+```bash
+curl -s "http://localhost:8000/api/v1/sop-cycles/1/executive-scorecard" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Example response shape:
+
+```json
+{
+  "cycle_id": 1,
+  "cycle_name": "March 2026 S&OP",
+  "period": "2026-03-01",
+  "scenario_reference": "Cycle-linked Scenario",
+  "service": {
+    "baseline_service_level": 96.0,
+    "scenario_service_level": 92.0,
+    "delta_service_level": -4.0
+  },
+  "cost": {
+    "inventory_carrying_cost": 12500.0,
+    "stockout_penalty_cost": 24000.0,
+    "composite_tradeoff_score": -1.8
+  },
+  "cash": {
+    "working_capital_delta": -8500.0,
+    "inventory_value_estimate": 210000.0
+  },
+  "risk": {
+    "open_exceptions": 12,
+    "high_risk_exceptions": 3,
+    "pending_recommendations": 7,
+    "backlog_risk": "medium"
+  },
+  "decision_signal": "review_required"
+}
+```
+
 ### KPI
 
 Dashboard:

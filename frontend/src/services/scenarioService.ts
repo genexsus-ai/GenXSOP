@@ -1,5 +1,5 @@
 import api from './api'
-import type { Scenario, CreateScenarioRequest, PaginatedResponse } from '@/types'
+import type { Scenario, CreateScenarioRequest, PaginatedResponse, ScenarioTradeoffSummary } from '@/types'
 
 export const scenarioService = {
   async getScenarios(params?: { page?: number; page_size?: number; status?: string }): Promise<PaginatedResponse<Scenario>> {
@@ -48,6 +48,11 @@ export const scenarioService = {
 
   async compareScenarios(ids: number[]) {
     const res = await api.post('/scenarios/compare', { scenario_ids: ids })
+    return res.data
+  },
+
+  async getTradeoffSummary(id: number): Promise<ScenarioTradeoffSummary> {
+    const res = await api.get<ScenarioTradeoffSummary>(`/scenarios/${id}/tradeoff-summary`)
     return res.data
   },
 }
