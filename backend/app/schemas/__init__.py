@@ -25,6 +25,7 @@ from app.schemas.inventory import (
     InventoryWorkingCapitalSummary,
     InventoryAssessmentAreaScore,
     InventoryAssessmentScorecard,
+    InventoryPolicyRunView,
 )
 from app.schemas.scenario import ScenarioCreate, ScenarioUpdate, ScenarioResponse, ScenarioListResponse
 from app.schemas.sop_cycle import (

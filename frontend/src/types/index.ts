@@ -300,6 +300,23 @@ export interface InventoryOptimizationRunResponse {
   exceptions: InventoryException[]
 }
 
+export interface InventoryPolicyRun {
+  run_id: string
+  status: 'running' | 'completed' | 'failed' | string
+  product_id?: number
+  location?: string
+  requested_by: number
+  processed_count: number
+  updated_count: number
+  exception_count: number
+  created_at: string
+  started_at?: string
+  completed_at?: string
+  error?: string
+  parameters?: Record<string, unknown>
+  result?: Record<string, unknown>
+}
+
 export interface InventoryPolicyOverrideRequest {
   safety_stock?: number
   reorder_point?: number

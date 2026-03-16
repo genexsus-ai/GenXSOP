@@ -252,6 +252,24 @@ class InventoryOptimizationRunResponse(BaseModel):
     exceptions: List[InventoryExceptionView]
 
 
+class InventoryPolicyRunView(BaseModel):
+    run_id: str
+    status: str
+    product_id: Optional[int] = None
+    location: Optional[str] = None
+    requested_by: int
+    processed_count: int
+    updated_count: int
+    exception_count: int
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    parameters: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+
+
+
 class InventoryResponse(InventoryBase):
     id: int
     updated_at: datetime

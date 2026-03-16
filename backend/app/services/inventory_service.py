@@ -17,7 +17,9 @@ from app.repositories.inventory_exception_repository import InventoryExceptionRe
 from app.repositories.product_repository import ProductRepository
 from app.repositories.supply_repository import SupplyPlanRepository
 from app.repositories.inventory_recommendation_repository import InventoryRecommendationRepository
+from app.repositories.inventory_policy_run_repository import InventoryPolicyRunRepository
 from app.models.inventory import Inventory
+from app.models.inventory_policy_run import InventoryPolicyRun
 from app.schemas.inventory import (
     InventoryUpdate,
     InventoryListResponse,
@@ -44,6 +46,7 @@ from app.schemas.inventory import (
     InventoryServiceLevelAnalyticsResponse,
     InventoryServiceLevelDistributionPoint,
     InventoryServiceLevelSuggestion,
+    InventoryPolicyRunView,
 )
 from app.core.exceptions import EntityNotFoundException, to_http_exception
 from app.utils.events import get_event_bus, EntityUpdatedEvent
@@ -58,7 +61,18 @@ class InventoryService:
         self._product_repo = ProductRepository(db)
         self._supply_repo = SupplyPlanRepository(db)
         self._recommendation_repo = InventoryRecommendationRepository(db)
+        self._policy_run_repo = InventoryPolicyRunRepository(db)
         self._bus = get_event_bus()
+
+    def list_optimization_runs(self, limit: int = 50, status: Optional[str] = None) -> List[InventoryPolicyRunView]:
+        runs = self._policy_run_repo.list_recent(limit=limit, status=status)
+        return [self._to_policy_run_view(r) for r in runs]
+
+    def get_optimization_run(self, run_id: str) -> InventoryPolicyRunView:
+        run = self._policy_run_repo.get_by_run_id(run_id)
+        if not run:
+            raise to_http_exception(EntityNotFoundException("InventoryPolicyRun", run_id))
+        return self._to_policy_run_view(run)
 
     def list_inventory(self, page: int = 1, page_size: int = 20, **filters) -> InventoryListResponse:
         items, total = self._repo.list_paginated(page=page, page_size=page_size, **filters)
@@ -103,68 +117,109 @@ class InventoryService:
     ) -> InventoryOptimizationRunResponse:
         scope = self._repo.list_for_policy(product_id=payload.product_id, location=payload.location)
         run_id = str(uuid4())
+        started_at = datetime.utcnow()
+
+        run = InventoryPolicyRun(
+            run_id=run_id,
+            status="running",
+            product_id=payload.product_id,
+            location=payload.location,
+            requested_by=user_id,
+            parameters_json=json.dumps(payload.model_dump()),
+            processed_count=len(scope),
+            started_at=started_at,
+        )
+        self._policy_run_repo.create(run)
+
         exceptions: List[InventoryExceptionView] = []
         updated = 0
+        error: Optional[str] = None
+        try:
+            for inv in scope:
+                old_values = {
+                    "safety_stock": self._serialize(inv.safety_stock),
+                    "reorder_point": self._serialize(inv.reorder_point),
+                    "max_stock": self._serialize(inv.max_stock),
+                    "status": inv.status,
+                }
 
-        for inv in scope:
-            old_values = {
-                "safety_stock": self._serialize(inv.safety_stock),
-                "reorder_point": self._serialize(inv.reorder_point),
-                "max_stock": self._serialize(inv.max_stock),
-                "status": inv.status,
+                demand_basis = (inv.allocated_qty or Decimal("0")) + (inv.in_transit_qty or Decimal("0"))
+                review_days = max(1, payload.review_period_days)
+                daily_demand = max(demand_basis / Decimal(str(review_days)), Decimal("1"))
+                z_factor = self._service_level_to_z(payload.service_level_target)
+                lead_time_days = self._resolve_effective_lead_time_days(inv, payload)
+                lead_time = Decimal(str(lead_time_days))
+
+                safety_stock = (daily_demand * Decimal(str(z_factor)) * lead_time.sqrt()).quantize(Decimal("0.01"))
+                reorder_point = (daily_demand * lead_time + safety_stock).quantize(Decimal("0.01"))
+                target_max = (reorder_point * Decimal("1.50")).quantize(Decimal("0.01"))
+
+                # Constraint-aware policy shaping
+                if payload.moq_units and payload.moq_units > 0:
+                    reorder_point = max(reorder_point, payload.moq_units)
+                if payload.lot_size_units and payload.lot_size_units > 0:
+                    reorder_point = self._round_up_to_lot(reorder_point, payload.lot_size_units)
+                    target_max = self._round_up_to_lot(target_max, payload.lot_size_units)
+                if payload.capacity_max_units and payload.capacity_max_units > 0:
+                    target_max = min(target_max, payload.capacity_max_units)
+                    reorder_point = min(reorder_point, target_max)
+
+                inv = self._repo.update(
+                    inv,
+                    {
+                        "safety_stock": safety_stock,
+                        "reorder_point": reorder_point,
+                        "max_stock": target_max,
+                    },
+                )
+                inv = self._recalculate_status(inv)
+                updated += 1
+
+                new_values = {
+                    "safety_stock": str(safety_stock),
+                    "reorder_point": str(reorder_point),
+                    "max_stock": str(target_max),
+                    "status": inv.status,
+                    "policy_source": "system",
+                    "run_id": run_id,
+                }
+                self._bus.publish(
+                    EntityUpdatedEvent(
+                        entity_type="inventory_policy",
+                        entity_id=inv.id,
+                        user_id=user_id,
+                        old_values=old_values,
+                        new_values=new_values,
+                    )
+                )
+
+                exceptions.extend(self._build_exceptions_for_inventory(inv, upsert=True))
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        finally:
+            completed_at = datetime.utcnow()
+            result_payload = {
+                "run_id": run_id,
+                "processed_count": len(scope),
+                "updated_count": updated,
+                "exception_count": len(exceptions),
+                "generated_at": completed_at.isoformat(),
             }
-
-            demand_basis = (inv.allocated_qty or Decimal("0")) + (inv.in_transit_qty or Decimal("0"))
-            review_days = max(1, payload.review_period_days)
-            daily_demand = max(demand_basis / Decimal(str(review_days)), Decimal("1"))
-            z_factor = self._service_level_to_z(payload.service_level_target)
-            lead_time_days = self._resolve_effective_lead_time_days(inv, payload)
-            lead_time = Decimal(str(lead_time_days))
-
-            safety_stock = (daily_demand * Decimal(str(z_factor)) * lead_time.sqrt()).quantize(Decimal("0.01"))
-            reorder_point = (daily_demand * lead_time + safety_stock).quantize(Decimal("0.01"))
-            target_max = (reorder_point * Decimal("1.50")).quantize(Decimal("0.01"))
-
-            # Constraint-aware policy shaping
-            if payload.moq_units and payload.moq_units > 0:
-                reorder_point = max(reorder_point, payload.moq_units)
-            if payload.lot_size_units and payload.lot_size_units > 0:
-                reorder_point = self._round_up_to_lot(reorder_point, payload.lot_size_units)
-                target_max = self._round_up_to_lot(target_max, payload.lot_size_units)
-            if payload.capacity_max_units and payload.capacity_max_units > 0:
-                target_max = min(target_max, payload.capacity_max_units)
-                reorder_point = min(reorder_point, target_max)
-
-            inv = self._repo.update(
-                inv,
+            self._policy_run_repo.update(
+                run,
                 {
-                    "safety_stock": safety_stock,
-                    "reorder_point": reorder_point,
-                    "max_stock": target_max,
+                    "status": "failed" if error else "completed",
+                    "processed_count": len(scope),
+                    "updated_count": updated,
+                    "exception_count": len(exceptions),
+                    "result_json": json.dumps(result_payload),
+                    "error": error,
+                    "completed_at": completed_at,
                 },
             )
-            inv = self._recalculate_status(inv)
-            updated += 1
 
-            new_values = {
-                "safety_stock": str(safety_stock),
-                "reorder_point": str(reorder_point),
-                "max_stock": str(target_max),
-                "status": inv.status,
-                "policy_source": "system",
-                "run_id": run_id,
-            }
-            self._bus.publish(
-                EntityUpdatedEvent(
-                    entity_type="inventory_policy",
-                    entity_id=inv.id,
-                    user_id=user_id,
-                    old_values=old_values,
-                    new_values=new_values,
-                )
-            )
-
-            exceptions.extend(self._build_exceptions_for_inventory(inv, upsert=True))
+        if error:
+            raise ValueError(f"Inventory optimization run failed: {error}")
 
         return InventoryOptimizationRunResponse(
             run_id=run_id,
@@ -173,6 +228,33 @@ class InventoryService:
             exception_count=len(exceptions),
             generated_at=datetime.utcnow(),
             exceptions=exceptions,
+        )
+
+    def _to_policy_run_view(self, run: InventoryPolicyRun) -> InventoryPolicyRunView:
+        def _safe_load(raw: Optional[str]) -> Optional[dict]:
+            if not raw:
+                return None
+            try:
+                parsed = json.loads(raw)
+                return parsed if isinstance(parsed, dict) else {"raw": raw}
+            except Exception:
+                return {"raw": raw}
+
+        return InventoryPolicyRunView(
+            run_id=run.run_id,
+            status=run.status,
+            product_id=run.product_id,
+            location=run.location,
+            requested_by=run.requested_by,
+            processed_count=run.processed_count,
+            updated_count=run.updated_count,
+            exception_count=run.exception_count,
+            created_at=run.created_at,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            error=run.error,
+            parameters=_safe_load(run.parameters_json),
+            result=_safe_load(run.result_json),
         )
 
     def apply_policy_override(

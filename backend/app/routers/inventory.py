@@ -32,6 +32,7 @@ from app.schemas.inventory import (
     InventoryAssessmentScorecard,
     InventoryServiceLevelAnalyticsRequest,
     InventoryServiceLevelAnalyticsResponse,
+    InventoryPolicyRunView,
 )
 from app.dependencies import get_current_user, require_roles
 from app.services.inventory_service import InventoryService
@@ -84,6 +85,25 @@ def run_inventory_optimization(
     current_user: User = Depends(require_roles(MANAGER_ROLES)),
 ):
     return service.run_optimization(payload, user_id=current_user.id)
+
+
+@router.get("/optimization/runs", response_model=list[InventoryPolicyRunView])
+def list_inventory_optimization_runs(
+    limit: int = Query(50, ge=1, le=200),
+    status: Optional[str] = Query(None, description="Filter by status: running|completed|failed"),
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(require_roles(MANAGER_ROLES)),
+):
+    return service.list_optimization_runs(limit=limit, status=status)
+
+
+@router.get("/optimization/runs/{run_id}", response_model=InventoryPolicyRunView)
+def get_inventory_optimization_run(
+    run_id: str,
+    service: InventoryService = Depends(get_inventory_service),
+    _: User = Depends(require_roles(MANAGER_ROLES)),
+):
+    return service.get_optimization_run(run_id=run_id)
 
 
 @router.get("/exceptions", response_model=list[InventoryExceptionView])

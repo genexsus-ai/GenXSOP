@@ -23,6 +23,7 @@ import type {
   InventoryAssessmentScorecard,
   InventoryServiceLevelAnalyticsRequest,
   InventoryServiceLevelAnalyticsResponse,
+  InventoryPolicyRun,
 } from '@/types'
 
 /**
@@ -141,6 +142,16 @@ export const inventoryService = {
 
   async runOptimization(payload: InventoryOptimizationRunRequest): Promise<InventoryOptimizationRunResponse> {
     const res = await api.post<InventoryOptimizationRunResponse>('/inventory/optimization/runs', payload)
+    return res.data
+  },
+
+  async listOptimizationRuns(params?: { limit?: number; status?: string }): Promise<InventoryPolicyRun[]> {
+    const res = await api.get<InventoryPolicyRun[]>('/inventory/optimization/runs', { params })
+    return res.data
+  },
+
+  async getOptimizationRun(runId: string): Promise<InventoryPolicyRun> {
+    const res = await api.get<InventoryPolicyRun>(`/inventory/optimization/runs/${runId}`)
     return res.data
   },
 

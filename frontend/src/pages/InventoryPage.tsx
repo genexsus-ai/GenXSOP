@@ -22,6 +22,8 @@ import {
   ComposedChart,
   Bar,
   Line,
+  ReferenceArea,
+  ReferenceLine,
 } from 'recharts'
 import type {
   Inventory,
@@ -61,6 +63,7 @@ export function InventoryPage() {
   const [serviceLevelMethod, setServiceLevelMethod] = useState<InventoryServiceLevelMethod>('analytical')
   const [targetServiceLevel, setTargetServiceLevel] = useState(0.95)
   const [serviceLevelLoading, setServiceLevelLoading] = useState(false)
+  const [selectedServiceLevelInventoryId, setSelectedServiceLevelInventoryId] = useState<number | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [optimizationLoading, setOptimizationLoading] = useState(false)
@@ -110,9 +113,11 @@ export function InventoryPage() {
       setAssessment(asmt)
 
       if (res.items.length > 0) {
+        setSelectedServiceLevelInventoryId(res.items[0].id)
         await loadServiceLevelAnalytics(res.items[0].id)
       } else {
         setServiceLevelAnalytics(null)
+        setSelectedServiceLevelInventoryId(null)
       }
     } catch {
       // handled
@@ -121,14 +126,22 @@ export function InventoryPage() {
     }
   }
 
-  const loadServiceLevelAnalytics = async (inventoryId: number) => {
+  const loadServiceLevelAnalytics = async (
+    inventoryId: number,
+    opts?: {
+      target_service_level?: number
+      method?: InventoryServiceLevelMethod
+    },
+  ) => {
     setServiceLevelLoading(true)
     try {
+      const method = opts?.method ?? serviceLevelMethod
+      const target = opts?.target_service_level ?? targetServiceLevel
       const data = await inventoryService.getServiceLevelAnalytics({
         inventory_id: inventoryId,
-        target_service_level: targetServiceLevel,
-        method: serviceLevelMethod,
-        simulation_runs: serviceLevelMethod === 'monte_carlo' ? 2000 : undefined,
+        target_service_level: target,
+        method,
+        simulation_runs: method === 'monte_carlo' ? 2000 : undefined,
         bucket_count: 20,
       })
       setServiceLevelAnalytics(data)
@@ -214,6 +227,22 @@ export function InventoryPage() {
   const excessCount = items.filter((i) => i.status === 'excess').length
   const totalValue = items.reduce((sum, i) => sum + (i.valuation ?? 0), 0)
 
+  const formatInventoryScopeLabel = (inv: Inventory) => {
+    const name = inv.product?.name ?? `Product #${inv.product_id}`
+    const sku = inv.product?.sku ? ` (${inv.product.sku})` : ''
+    return `${name}${sku} — ${inv.location}`
+  }
+
+  const selectedServiceLevelItem = selectedServiceLevelInventoryId
+    ? items.find((i) => i.id === selectedServiceLevelInventoryId) ?? null
+    : null
+
+  const serviceLevelScopeLabel = selectedServiceLevelItem
+    ? formatInventoryScopeLabel(selectedServiceLevelItem)
+    : items[0]
+      ? formatInventoryScopeLabel(items[0])
+      : null
+
   const statusChartData = [
     { name: 'Normal', value: healthSummary?.normal_count ?? items.filter((i) => i.status === 'normal').length, color: '#10b981' },
     { name: 'Low', value: healthSummary?.low_count ?? lowCount, color: '#f59e0b' },
@@ -242,6 +271,21 @@ export function InventoryPage() {
     bucket: d.bucket,
     probabilityPct: Number((d.probability * 100).toFixed(2)),
   }))
+
+  // Used for chart overlays (target SL shading & marker line)
+  const serviceLevelDistributionCdf = (serviceLevelAnalytics?.distribution || []).reduce<Array<{ bucket: string; cdf: number }>>(
+    (acc, d) => {
+      const prev = acc.length > 0 ? acc[acc.length - 1]!.cdf : 0
+      const next = prev + (Number.isFinite(d.probability) ? d.probability : 0)
+      acc.push({ bucket: d.bucket, cdf: next })
+      return acc
+    },
+    [],
+  )
+
+  // Chart overlay should respond immediately to the *selected* target service level.
+  const serviceLevelTarget = targetServiceLevel
+  const targetBucket = serviceLevelDistributionCdf.find((p) => p.cdf >= serviceLevelTarget)?.bucket
 
   const workingCapitalChartData = workingCapital
     ? [
@@ -499,13 +543,49 @@ export function InventoryPage() {
         </div>
       </Card>
 
-      <Card title="Service Level Under Uncertainty" subtitle="Probability-based CSL/fill-rate analytics from stock-demand distribution">
+      <Card
+        title="Service Level Under Uncertainty"
+        subtitle={serviceLevelScopeLabel
+          ? `Probability-based CSL/fill-rate analytics from stock-demand distribution • Scope: ${serviceLevelScopeLabel}`
+          : 'Probability-based CSL/fill-rate analytics from stock-demand distribution'}
+      >
         <div className="flex flex-wrap items-end gap-2 mb-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">SKU / Location</label>
+            <select
+              value={String(selectedServiceLevelInventoryId ?? '')}
+              onChange={(e) => {
+                const nextId = Number(e.target.value)
+                if (!Number.isFinite(nextId)) return
+                setSelectedServiceLevelInventoryId(nextId)
+                void loadServiceLevelAnalytics(nextId)
+              }}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-2 min-w-[260px]"
+              disabled={items.length === 0}
+            >
+              {items.length === 0 ? (
+                <option value="">No SKUs</option>
+              ) : (
+                items.map((item) => (
+                  <option key={item.id} value={String(item.id)}>
+                    {formatInventoryScopeLabel(item)}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Method</label>
             <select
               value={serviceLevelMethod}
-              onChange={(e) => setServiceLevelMethod(e.target.value as InventoryServiceLevelMethod)}
+              onChange={(e) => {
+                const nextMethod = e.target.value as InventoryServiceLevelMethod
+                setServiceLevelMethod(nextMethod)
+
+                const id = selectedServiceLevelInventoryId ?? items[0]?.id
+                if (!id) return
+                void loadServiceLevelAnalytics(id, { method: nextMethod })
+              }}
               className="text-sm border border-gray-200 rounded-lg px-3 py-2"
             >
               <option value="analytical">Analytical</option>
@@ -516,7 +596,14 @@ export function InventoryPage() {
             <label className="block text-xs text-gray-500 mb-1">Target Service Level</label>
             <select
               value={String(targetServiceLevel)}
-              onChange={(e) => setTargetServiceLevel(Number(e.target.value))}
+              onChange={(e) => {
+                const nextTarget = Number(e.target.value)
+                setTargetServiceLevel(nextTarget)
+
+                const id = selectedServiceLevelInventoryId ?? items[0]?.id
+                if (!id) return
+                void loadServiceLevelAnalytics(id, { target_service_level: nextTarget })
+              }}
               className="text-sm border border-gray-200 rounded-lg px-3 py-2"
             >
               <option value="0.9">90%</option>
@@ -529,7 +616,7 @@ export function InventoryPage() {
             size="sm"
             loading={serviceLevelLoading}
             onClick={() => {
-              const id = items[0]?.id
+              const id = selectedServiceLevelInventoryId ?? items[0]?.id
               if (!id) return
               void loadServiceLevelAnalytics(id)
             }}
@@ -549,6 +636,20 @@ export function InventoryPage() {
               <KPICard title="Recommended SS" value={formatNumber(serviceLevelAnalytics.recommended_safety_stock)} icon={<Bot className="h-4 w-4" />} color="purple" />
             </div>
 
+            <div className="flex items-center justify-end gap-3 text-xs text-gray-500 mb-1.5">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block w-5 h-2 rounded-sm"
+                  style={{ backgroundColor: 'rgba(16, 185, 129, 0.18)' }}
+                />
+                <span>Target region</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-5 border-b-2 border-dashed border-emerald-600" />
+                <span>Target SL {(serviceLevelTarget * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={serviceLevelDistributionData} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
@@ -556,6 +657,29 @@ export function InventoryPage() {
                   <XAxis dataKey="bucket" tick={{ fontSize: 10 }} interval={2} />
                   <YAxis tickFormatter={(v) => `${v}%`} width={44} />
                   <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
+
+                  {targetBucket && (
+                    <>
+                      {/* Shade up to the quantile bucket corresponding to the target service level */}
+                      <ReferenceArea
+                        x1={serviceLevelDistributionData[0]?.bucket}
+                        x2={targetBucket}
+                        fill="#10b981"
+                        fillOpacity={0.14}
+                        ifOverflow="extendDomain"
+                      />
+                      {/* Mark the quantile bucket where CDF crosses the target service level */}
+                      <ReferenceLine
+                        x={targetBucket}
+                        stroke="#059669"
+                        strokeOpacity={0.9}
+                        strokeDasharray="5 5"
+                        strokeWidth={1.5}
+                        ifOverflow="extendDomain"
+                      />
+                    </>
+                  )}
+
                   <Bar dataKey="probabilityPct" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
                   <Line
                     type="monotone"
