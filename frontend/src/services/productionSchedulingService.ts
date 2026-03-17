@@ -1,5 +1,8 @@
 import api from './api'
 import type {
+  AgenticScheduleEventRequest,
+  AgenticScheduleRecommendationResponse,
+  AgenticScheduleRecommendationView,
   GenerateProductionScheduleRequest,
   ProductionCapacitySummary,
   ProductionSchedule,
@@ -7,6 +10,22 @@ import type {
 } from '@/types'
 
 export const productionSchedulingService = {
+  recommendationStreamUrl(params?: {
+    status?: 'pending_approval' | 'approved' | 'rejected'
+    supply_plan_id?: number
+    product_id?: number
+  }): string {
+    const token = localStorage.getItem('access_token')
+    const basePath = (import.meta.env.VITE_API_BASE_URL ?? '/api/v1').replace(/\/$/, '')
+    const absoluteBase = basePath.startsWith('http') ? basePath : `${window.location.origin}${basePath}`
+    const url = new URL(`${absoluteBase}/production-scheduling/recommendations-stream`)
+    if (params?.status) url.searchParams.set('status', params.status)
+    if (params?.supply_plan_id) url.searchParams.set('supply_plan_id', String(params.supply_plan_id))
+    if (params?.product_id) url.searchParams.set('product_id', String(params.product_id))
+    if (token) url.searchParams.set('access_token', token)
+    return url.toString()
+  },
+
   async listSchedules(params?: {
     product_id?: number
     period?: string
@@ -39,6 +58,42 @@ export const productionSchedulingService = {
 
   async resequenceSchedule(id: number, direction: 'up' | 'down'): Promise<ProductionSchedule[]> {
     const res = await api.post<ProductionSchedule[]>(`/production-scheduling/schedules/${id}/resequence`, { direction })
+    return res.data
+  },
+
+  async getEventRecommendation(payload: AgenticScheduleEventRequest): Promise<AgenticScheduleRecommendationResponse> {
+    const res = await api.post<AgenticScheduleRecommendationResponse>('/production-scheduling/events/recommendation', payload)
+    return res.data
+  },
+
+  async listRecommendations(params?: {
+    status?: 'pending_approval' | 'approved' | 'rejected'
+    supply_plan_id?: number
+    product_id?: number
+  }): Promise<AgenticScheduleRecommendationView[]> {
+    const res = await api.get<AgenticScheduleRecommendationView[]>('/production-scheduling/recommendations', { params })
+    return res.data
+  },
+
+  async approveRecommendation(
+    recommendationId: string,
+    note?: string,
+  ): Promise<AgenticScheduleRecommendationView> {
+    const res = await api.post<AgenticScheduleRecommendationView>(
+      `/production-scheduling/recommendations/${recommendationId}/approve`,
+      { note },
+    )
+    return res.data
+  },
+
+  async rejectRecommendation(
+    recommendationId: string,
+    note?: string,
+  ): Promise<AgenticScheduleRecommendationView> {
+    const res = await api.post<AgenticScheduleRecommendationView>(
+      `/production-scheduling/recommendations/${recommendationId}/reject`,
+      { note },
+    )
     return res.data
   },
 }

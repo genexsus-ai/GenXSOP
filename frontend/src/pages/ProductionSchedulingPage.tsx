@@ -9,6 +9,10 @@ import { formatNumber, formatPercent, formatPeriod } from '@/utils/formatters'
 import { supplyService } from '@/services/supplyService'
 import { productionSchedulingService } from '@/services/productionSchedulingService'
 import type {
+  AgenticEventType,
+  AgenticScheduleRecommendationResponse,
+  AgenticScheduleRecommendationView,
+  AgenticSeverity,
   ProductionCapacitySummary,
   ProductionSchedule,
   ProductionScheduleStatus,
@@ -17,6 +21,16 @@ import type {
 import toast from 'react-hot-toast'
 
 const SHIFT_OPTIONS = ['Shift-A', 'Shift-B', 'Shift-C']
+const EVENT_TYPES: AgenticEventType[] = [
+  'MACHINE_DOWN',
+  'MACHINE_RECOVERED',
+  'ORDER_PRIORITY_CHANGED',
+  'MATERIAL_SHORTAGE',
+  'QUALITY_HOLD',
+  'QUALITY_RELEASED',
+  'LABOR_UNAVAILABLE',
+]
+const SEVERITY_OPTIONS: AgenticSeverity[] = ['low', 'medium', 'high', 'critical']
 const STATUS_OPTIONS: ProductionScheduleStatus[] = ['draft', 'released', 'in_progress', 'completed']
 
 export function ProductionSchedulingPage() {
@@ -32,6 +46,13 @@ export function ProductionSchedulingPage() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null)
+  const [recommendations, setRecommendations] = useState<AgenticScheduleRecommendationView[]>([])
+  const [eventType, setEventType] = useState<AgenticEventType>('MACHINE_DOWN')
+  const [eventSeverity, setEventSeverity] = useState<AgenticSeverity>('medium')
+  const [eventNote, setEventNote] = useState('')
+  const [runningEvent, setRunningEvent] = useState(false)
+  const [eventResult, setEventResult] = useState<AgenticScheduleRecommendationResponse | null>(null)
+  const [decisionBusyId, setDecisionBusyId] = useState<string | null>(null)
 
   const selectedPlan = useMemo(
     () => supplyPlans.find((p) => p.id === selectedSupplyPlanId),
@@ -82,10 +103,50 @@ export function ProductionSchedulingPage() {
     }
   }
 
+  const loadRecommendations = async () => {
+    try {
+      const data = await productionSchedulingService.listRecommendations(
+        selectedSupplyPlanId ? { supply_plan_id: selectedSupplyPlanId } : undefined,
+      )
+      setRecommendations(data)
+    } catch {
+      setRecommendations([])
+    }
+  }
+
   useEffect(() => { loadSupplyPlans() }, [])
   useEffect(() => {
     loadSchedules()
     loadCapacity()
+    loadRecommendations()
+  }, [selectedSupplyPlanId])
+
+  useEffect(() => {
+    if (!selectedSupplyPlanId) return
+
+    const streamUrl = productionSchedulingService.recommendationStreamUrl({
+      supply_plan_id: selectedSupplyPlanId,
+    })
+    const source = new EventSource(streamUrl)
+
+    source.addEventListener('recommendations', (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as {
+          recommendations: AgenticScheduleRecommendationView[]
+        }
+        setRecommendations(payload.recommendations ?? [])
+      } catch {
+        // fallback to existing list API
+        loadRecommendations()
+      }
+    })
+
+    source.onerror = () => {
+      source.close()
+      loadRecommendations()
+    }
+
+    return () => source.close()
   }, [selectedSupplyPlanId])
 
   const toggleShift = (shift: string) => {
@@ -147,6 +208,48 @@ export function ProductionSchedulingPage() {
       toast.success('Sequence updated')
     } catch {
       // handled globally
+    }
+  }
+
+  const runEventRecommendation = async () => {
+    if (!selectedSupplyPlanId) {
+      toast.error('Select a supply plan first')
+      return
+    }
+    setRunningEvent(true)
+    try {
+      const result = await productionSchedulingService.getEventRecommendation({
+        event_type: eventType,
+        severity: eventSeverity,
+        event_timestamp: new Date().toISOString(),
+        supply_plan_id: selectedSupplyPlanId,
+        note: eventNote || undefined,
+      })
+      setEventResult(result)
+      toast.success('Event recommendation generated')
+      loadRecommendations()
+    } catch {
+      // handled globally
+    } finally {
+      setRunningEvent(false)
+    }
+  }
+
+  const decideRecommendation = async (recommendationId: string, decision: 'approve' | 'reject') => {
+    setDecisionBusyId(recommendationId)
+    try {
+      if (decision === 'approve') {
+        await productionSchedulingService.approveRecommendation(recommendationId, 'Approved from scheduling panel')
+        toast.success('Recommendation approved')
+      } else {
+        await productionSchedulingService.rejectRecommendation(recommendationId, 'Rejected from scheduling panel')
+        toast.success('Recommendation rejected')
+      }
+      loadRecommendations()
+    } catch {
+      // handled globally
+    } finally {
+      setDecisionBusyId(null)
     }
   }
 
@@ -233,6 +336,110 @@ export function ProductionSchedulingPage() {
         <div className="mt-4 flex gap-2">
           <Button onClick={generate} loading={generating}>Generate Schedule</Button>
           <Button variant="outline" onClick={loadSchedules} icon={<RefreshCw className="h-4 w-4" />}>Refresh</Button>
+        </div>
+      </Card>
+
+      <Card title="Event-Driven Recommendation Review" subtitle="Trigger, evaluate, and decide agentic recommendations">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Event Type</label>
+            <select
+              value={eventType}
+              onChange={(e) => setEventType(e.target.value as AgenticEventType)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            >
+              {EVENT_TYPES.map((e) => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Severity</label>
+            <select
+              value={eventSeverity}
+              onChange={(e) => setEventSeverity(e.target.value as AgenticSeverity)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+            >
+              {SEVERITY_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">Note</label>
+            <input
+              value={eventNote}
+              onChange={(e) => setEventNote(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
+              placeholder="Optional context"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button onClick={runEventRecommendation} loading={runningEvent}>Generate Event Recommendation</Button>
+          <Button variant="outline" onClick={loadRecommendations}>Refresh Recommendations</Button>
+        </div>
+
+        {eventResult && (
+          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800 space-y-1">
+            <p className="font-semibold">Latest Recommendation: {eventResult.recommendation_id}</p>
+            <p>{eventResult.recommendation_summary}</p>
+            {eventResult.orchestration && (
+              <p className="text-xs text-blue-700">
+                {eventResult.orchestration.recommendation_summary}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 overflow-x-auto border border-gray-100 rounded-lg">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                {['Created', 'Event', 'Severity', 'Status', 'Impacted Rows', 'Summary', 'Decision'].map((h) => (
+                  <th key={h} className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {recommendations.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-3 text-sm text-gray-500" colSpan={7}>No recommendations yet.</td>
+                </tr>
+              ) : recommendations.map((r) => (
+                <tr key={r.recommendation_id}>
+                  <td className="px-4 py-2.5 text-gray-700">{new Date(r.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-2.5">{r.event_type}</td>
+                  <td className="px-4 py-2.5">{r.severity}</td>
+                  <td className="px-4 py-2.5"><StatusBadge status={r.status as ProductionScheduleStatus} size="sm" /></td>
+                  <td className="px-4 py-2.5 tabular-nums">{r.impacted_rows}</td>
+                  <td className="px-4 py-2.5 text-gray-700 max-w-[420px] truncate" title={r.recommendation_summary}>
+                    {r.recommendation_summary}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {r.status === 'pending_approval' ? (
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          onClick={() => decideRecommendation(r.recommendation_id, 'approve')}
+                          loading={decisionBusyId === r.recommendation_id}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => decideRecommendation(r.recommendation_id, 'reject')}
+                          loading={decisionBusyId === r.recommendation_id}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-500">{r.decision_note || 'Decided'}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Card>
 

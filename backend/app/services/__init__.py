@@ -10,6 +10,8 @@ from app.services.forecast_consensus_service import ForecastConsensusService
 from app.services.dashboard_service import DashboardService
 from app.services.integration_service import IntegrationService
 from app.services.production_schedule_service import ProductionScheduleService
+from app.services.agentic_scheduling_service import AgenticSchedulingService
+from app.services.agentic_orchestration_service import AgenticOrchestrationService
 
 __all__ = [
     "DemandService",
@@ -23,4 +25,6 @@ __all__ = [
     "DashboardService",
     "IntegrationService",
     "ProductionScheduleService",
+    "AgenticSchedulingService",
+    "AgenticOrchestrationService",
 ]

@@ -61,3 +61,11 @@ from app.schemas.production_schedule import (
     ProductionScheduleStatusUpdateRequest,
     ProductionScheduleResponse,
 )
+from app.schemas.agentic_scheduling import (
+    AgenticScheduleEventRequest,
+    AgenticScheduleRecommendationResponse,
+    AgenticScheduleRecommendationView,
+    AgenticRecommendationDecisionRequest,
+    AgenticOrchestrationAlternative,
+    AgenticOrchestrationResponse,
+)

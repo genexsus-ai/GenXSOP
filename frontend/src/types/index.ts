@@ -233,6 +233,83 @@ export interface ProductionCapacitySummary {
   groups: ProductionCapacityGroupSummary[]
 }
 
+export type AgenticEventType =
+  | 'MACHINE_DOWN'
+  | 'MACHINE_RECOVERED'
+  | 'ORDER_PRIORITY_CHANGED'
+  | 'MATERIAL_SHORTAGE'
+  | 'QUALITY_HOLD'
+  | 'QUALITY_RELEASED'
+  | 'LABOR_UNAVAILABLE'
+
+export type AgenticSeverity = 'low' | 'medium' | 'high' | 'critical'
+export type AgenticRecommendationStatus = 'pending_approval' | 'approved' | 'rejected'
+
+export interface AgenticScheduleAction {
+  action_type: 'resequence' | 'expedite' | 'hold' | 'manual_review'
+  schedule_id: number
+  from_sequence: number
+  to_sequence: number
+  reason: string
+  confidence: number
+}
+
+export interface AgenticOrchestrationAlternative {
+  action: AgenticScheduleAction
+  score: number
+  simulated_kpis: Record<string, number>
+}
+
+export interface AgenticOrchestrationResponse {
+  workflow_state: 'FAILED' | 'SIMULATED'
+  recommendation_summary: string
+  selected_action?: AgenticScheduleAction | null
+  alternatives: AgenticOrchestrationAlternative[]
+}
+
+export interface AgenticScheduleEventRequest {
+  event_type: AgenticEventType
+  severity: AgenticSeverity
+  event_timestamp: string
+  supply_plan_id?: number
+  product_id?: number
+  period?: string
+  workcenter?: string
+  line?: string
+  shift?: string
+  note?: string
+}
+
+export interface AgenticScheduleRecommendationResponse {
+  recommendation_id: string
+  workflow_id: string
+  state: 'RECEIVED' | 'CLASSIFIED' | 'PENDING_APPROVAL'
+  event_type: AgenticEventType
+  severity: AgenticSeverity
+  impacted_rows: number
+  recommendation_summary: string
+  explanation: string
+  actions: AgenticScheduleAction[]
+  orchestration?: AgenticOrchestrationResponse | null
+}
+
+export interface AgenticScheduleRecommendationView {
+  recommendation_id: string
+  workflow_id: string
+  event_type: AgenticEventType
+  severity: AgenticSeverity
+  status: AgenticRecommendationStatus
+  state: string
+  impacted_rows: number
+  recommendation_summary: string
+  explanation: string
+  actions: AgenticScheduleAction[]
+  decision_note?: string
+  decided_at?: string
+  created_at: string
+  updated_at: string
+}
+
 // ── Inventory ─────────────────────────────────────────────────────────────────
 
 export type InventoryStatus = 'normal' | 'low' | 'critical' | 'excess'
