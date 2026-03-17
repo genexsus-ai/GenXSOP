@@ -254,3 +254,251 @@ def test_agentic_config_upsert_forbidden_for_non_privileged_role(client: TestCli
         },
     )
     assert resp.status_code == 403
+
+
+def test_audit_recommendation_trail_endpoint_returns_revisions(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin7@test.com", "admin")
+
+    # Create minimum master data/supply plan so recommendation flow can run in this test module.
+    product_sync = client.post(
+        "/api/v1/integrations/erp/products/sync",
+        headers=admin_headers,
+        json={
+            "meta": {"source_system": "ERP"},
+            "items": [{"sku": "AUD-001", "name": "Audit Product"}],
+        },
+    )
+    assert product_sync.status_code == 200
+
+    from datetime import date
+    from app.models.product import Product
+    from app.models.supply_plan import SupplyPlan
+
+    product = db.query(Product).filter(Product.sku == "AUD-001").first()
+    assert product is not None
+
+    plan = SupplyPlan(
+        product_id=product.id,
+        period=date(2026, 3, 1),
+        planned_prod_qty=100,
+        status="draft",
+        created_by=1,
+        version=1,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    gen = client.post(
+        "/api/v1/production-scheduling/generate",
+        headers=admin_headers,
+        json={
+            "supply_plan_id": plan.id,
+            "workcenters": ["WC-1"],
+            "lines": ["Line-1"],
+            "shifts": ["Shift-A"],
+        },
+    )
+    assert gen.status_code == 201
+
+    rec = client.post(
+        "/api/v1/production-scheduling/events/recommendation",
+        headers=admin_headers,
+        json={
+            "event_type": "MACHINE_DOWN",
+            "severity": "high",
+            "event_timestamp": "2026-03-01T10:00:00Z",
+            "supply_plan_id": plan.id,
+        },
+    )
+    assert rec.status_code == 200
+    rec_id = rec.json()["recommendation_id"]
+
+    trail = client.get(f"/api/v1/audit/recommendations/{rec_id}", headers=admin_headers)
+    assert trail.status_code == 200
+    body = trail.json()
+    assert body["recommendation_id"] == rec_id
+    assert len(body["revisions"]) >= 1
+    assert body["revisions"][0]["recommendation_id"] == rec_id
+
+
+def test_audit_decisions_endpoint_accessible_and_filterable(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin8@test.com", "admin")
+
+    resp = client.get("/api/v1/audit/decisions?limit=10", headers=admin_headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+def test_simulation_run_and_get_by_id_from_recommendation(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin9@test.com", "admin")
+
+    product_sync = client.post(
+        "/api/v1/integrations/erp/products/sync",
+        headers=admin_headers,
+        json={
+            "meta": {"source_system": "ERP"},
+            "items": [{"sku": "SIM-001", "name": "Simulation Product"}],
+        },
+    )
+    assert product_sync.status_code == 200
+
+    from datetime import date
+    from app.models.product import Product
+    from app.models.supply_plan import SupplyPlan
+
+    product = db.query(Product).filter(Product.sku == "SIM-001").first()
+    assert product is not None
+
+    plan = SupplyPlan(
+        product_id=product.id,
+        period=date(2026, 3, 1),
+        planned_prod_qty=120,
+        status="draft",
+        created_by=1,
+        version=1,
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+
+    gen = client.post(
+        "/api/v1/production-scheduling/generate",
+        headers=admin_headers,
+        json={
+            "supply_plan_id": plan.id,
+            "workcenters": ["WC-1"],
+            "lines": ["Line-1"],
+            "shifts": ["Shift-A"],
+        },
+    )
+    assert gen.status_code == 201
+
+    rec = client.post(
+        "/api/v1/production-scheduling/events/recommendation",
+        headers=admin_headers,
+        json={
+            "event_type": "MACHINE_DOWN",
+            "severity": "high",
+            "event_timestamp": "2026-03-01T10:00:00Z",
+            "supply_plan_id": plan.id,
+        },
+    )
+    assert rec.status_code == 200
+    rec_id = rec.json()["recommendation_id"]
+
+    run = client.post(
+        "/api/v1/simulations",
+        headers=admin_headers,
+        json={
+            "recommendation_id": rec_id,
+            "scenario_name": "throughput-what-if",
+        },
+    )
+    assert run.status_code == 200
+    run_body = run.json()
+    assert run_body["recommendation_id"] == rec_id
+    assert run_body["scenario_name"] == "throughput-what-if"
+    assert run_body["status"] in {"completed", "failed"}
+    assert run_body["simulation_id"]
+    assert run_body["result"] is not None
+
+    sim_id = run_body["simulation_id"]
+    fetched = client.get(f"/api/v1/simulations/{sim_id}", headers=admin_headers)
+    assert fetched.status_code == 200
+    fetched_body = fetched.json()
+    assert fetched_body["simulation_id"] == sim_id
+    assert fetched_body["recommendation_id"] == rec_id
+
+
+def test_simulation_direct_input_mode(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin10@test.com", "admin")
+
+    run = client.post(
+        "/api/v1/simulations",
+        headers=admin_headers,
+        json={
+            "scenario_name": "direct-input",
+            "event_type": "MATERIAL_SHORTAGE",
+            "severity": "medium",
+            "action": {
+                "action_type": "resequence",
+                "schedule_id": 1,
+                "from_sequence": 4,
+                "to_sequence": 2,
+                "reason": "material rebalancing",
+                "confidence": 0.8,
+            },
+        },
+    )
+    assert run.status_code == 200
+    body = run.json()
+    assert body["simulation_id"]
+    assert body["recommendation_id"] is None
+    assert body["scenario_name"] == "direct-input"
+
+
+def test_simulation_list_filters(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin11@test.com", "admin")
+
+    first = client.post(
+        "/api/v1/simulations",
+        headers=admin_headers,
+        json={
+            "scenario_name": "hist-alpha",
+            "event_type": "MATERIAL_SHORTAGE",
+            "severity": "medium",
+            "action": {
+                "action_type": "resequence",
+                "schedule_id": 1,
+                "from_sequence": 5,
+                "to_sequence": 3,
+                "reason": "alpha",
+                "confidence": 0.75,
+            },
+        },
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+
+    second = client.post(
+        "/api/v1/simulations",
+        headers=admin_headers,
+        json={
+            "scenario_name": "hist-beta",
+            "event_type": "MACHINE_DOWN",
+            "severity": "high",
+            "action": {
+                "action_type": "hold",
+                "schedule_id": 1,
+                "from_sequence": 2,
+                "to_sequence": 2,
+                "reason": "beta",
+                "confidence": 0.7,
+            },
+        },
+    )
+    assert second.status_code == 200
+
+    by_scenario = client.get(
+        "/api/v1/simulations?scenario_name=hist-alpha",
+        headers=admin_headers,
+    )
+    assert by_scenario.status_code == 200
+    scenario_rows = by_scenario.json()
+    assert len(scenario_rows) >= 1
+    assert all(r["scenario_name"] == "hist-alpha" for r in scenario_rows)
+
+    status_value = first_body["status"]
+    by_status = client.get(
+        f"/api/v1/simulations?status={status_value}",
+        headers=admin_headers,
+    )
+    assert by_status.status_code == 200
+    status_rows = by_status.json()
+    assert len(status_rows) >= 1
+    assert all(r["status"] == status_value for r in status_rows)
+
+    limited = client.get("/api/v1/simulations?limit=1", headers=admin_headers)
+    assert limited.status_code == 200
+    assert len(limited.json()) == 1

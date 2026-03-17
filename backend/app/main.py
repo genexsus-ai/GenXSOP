@@ -33,6 +33,8 @@ from app.routers import (
     integrations,
     production_scheduling,
     agentic_config,
+    audit,
+    simulations,
 )
 
 configure_logging(log_level=settings.LOG_LEVEL, log_format=settings.LOG_FORMAT)
@@ -136,6 +138,8 @@ app.include_router(kpi.router, prefix=API_PREFIX)
 app.include_router(integrations.router, prefix=API_PREFIX)
 app.include_router(production_scheduling.router, prefix=API_PREFIX)
 app.include_router(agentic_config.router, prefix=API_PREFIX)
+app.include_router(audit.router, prefix=API_PREFIX)
+app.include_router(simulations.router, prefix=API_PREFIX)
 
 
 # ── Lifecycle Events ──────────────────────────────────────────────────────────

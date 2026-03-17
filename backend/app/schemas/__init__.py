@@ -80,3 +80,11 @@ from app.schemas.agentic_scheduling_config import (
     AgenticSchedulingConfigUpsertRequest,
     AgenticSchedulingConfigResponse,
 )
+from app.schemas.audit import (
+    AuditDecisionView,
+    RecommendationAuditTrailResponse,
+)
+from app.schemas.simulation import (
+    SimulationRunCreateRequest,
+    SimulationRunResponse,
+)

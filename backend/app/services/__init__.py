@@ -13,6 +13,7 @@ from app.services.production_schedule_service import ProductionScheduleService
 from app.services.agentic_scheduling_service import AgenticSchedulingService
 from app.services.agentic_orchestration_service import AgenticOrchestrationService
 from app.services.agentic_scheduling_config_service import AgenticSchedulingConfigService
+from app.services.simulation_service import SimulationService
 
 __all__ = [
     "DemandService",
@@ -29,4 +30,5 @@ __all__ = [
     "AgenticSchedulingService",
     "AgenticOrchestrationService",
     "AgenticSchedulingConfigService",
+    "SimulationService",
 ]

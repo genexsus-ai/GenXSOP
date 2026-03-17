@@ -78,9 +78,9 @@ Legend:
 | Scheduling endpoints | ✅ | generate/list/resequence/status + versions/compare |
 | Recommendations endpoints | ✅ | list/get/approve/reject/modify/publish |
 | Events endpoints | ✅ | ingest/list/replay + event recommendation |
-| Simulation endpoints | 🟡 | Simulated KPI output exists; dedicated simulation resource set partial |
-| Audit endpoints | 🟡 | Audit data captured; explicit `/api/v1/audit/*` surface incomplete |
-| Config objectives/policies endpoints | ❌ | Not fully implemented as dedicated config APIs |
+| Simulation endpoints | ✅ | `backend/app/routers/simulations.py` (`POST /api/v1/simulations`, `GET /api/v1/simulations/{simulation_id}`, `GET /api/v1/simulations` with filters) + `backend/app/services/simulation_service.py` + `backend/app/models/simulation_run.py` + migration `20260317_0017_add_simulation_runs_table.py` + integration tests |
+| Audit endpoints | ✅ | `backend/app/routers/audit.py` (`GET /api/v1/audit/decisions`, `GET /api/v1/audit/recommendations/{recommendation_id}`) + `backend/app/services/audit_service.py` + integration tests |
+| Config objectives/policies endpoints | ✅ | `backend/app/routers/agentic_config.py` + `backend/app/services/agentic_scheduling_config_service.py` + migration `20260317_0016_add_agentic_scheduling_configs_table.py` + integration tests |
 
 ## 5) Non-functional Requirements
 
@@ -106,12 +106,12 @@ Legend:
 Current implementation is **substantial but not complete** relative to the full requirement document.
 
 - **Strongly implemented**: event ingestion reliability, event-driven recommendation lifecycle, approval/publish guardrails, schedule versioning/compare, and P2 orchestration simulation enrichments.
-- **Partially implemented**: deeper constraint solver capabilities, formalized multi-agent runtime decomposition, full simulation/audit/config API parity, and enterprise-grade observability/compliance envelope.
-- **Missing**: some roadmap-level capabilities (e.g., full objective/policy config APIs, complete alternate-routing/eligibility rule engine).
+- **Partially implemented**: deeper constraint solver capabilities, formalized multi-agent runtime decomposition, and enterprise-grade observability/compliance envelope.
+- **Missing**: some roadmap-level capabilities (e.g., complete alternate-routing/eligibility rule engine and richer simulation UX/workbench depth).
 
 ## 8) Recommended Next Slice (P2 -> P3 Bridge)
 
-1. Add dedicated **Objectives/Policies Config APIs** (`/api/v1/config/objectives`, `/api/v1/config/policies`) and persistence.
-2. Introduce a **constraint catalog** abstraction (machine eligibility, labor skill, setup matrix) with explicit validation chain.
-3. Add a first-class **Simulation API resource** (`POST /simulations`, `GET /simulations/{id}`) backed by persisted runs.
+1. Introduce a **constraint catalog** abstraction (machine eligibility, labor skill, setup matrix) with explicit validation chain.
+2. Expand simulation features with scenario cataloging, richer compare semantics, and UI drill-down over persisted runs.
+3. Expand audit breadth from recommendation-centric traces to broader cross-domain audit views and UI drill-downs.
 4. Expand UI to display **objective weights, risk indicators, and simulation alternatives** explicitly in control tower/recommendation panels.
