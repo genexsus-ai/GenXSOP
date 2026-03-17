@@ -1,12 +1,19 @@
 import api from './api'
 import type {
+  AgenticRecommendationModifyRequest,
+  AgenticRecommendationPublishRequest,
   AgenticScheduleEventRequest,
   AgenticScheduleRecommendationResponse,
   AgenticScheduleRecommendationView,
+  CanonicalProductionEventIngestRequest,
+  CanonicalProductionEventResponse,
   GenerateProductionScheduleRequest,
+  ProductionEventReplayResponse,
   ProductionCapacitySummary,
   ProductionSchedule,
   ProductionScheduleStatus,
+  ProductionScheduleVersionCompareResponse,
+  ProductionScheduleVersionView,
 } from '@/types'
 
 export const productionSchedulingService = {
@@ -67,7 +74,7 @@ export const productionSchedulingService = {
   },
 
   async listRecommendations(params?: {
-    status?: 'pending_approval' | 'approved' | 'rejected'
+    status?: 'pending_approval' | 'approved' | 'rejected' | 'published'
     supply_plan_id?: number
     product_id?: number
   }): Promise<AgenticScheduleRecommendationView[]> {
@@ -94,6 +101,65 @@ export const productionSchedulingService = {
       `/production-scheduling/recommendations/${recommendationId}/reject`,
       { note },
     )
+    return res.data
+  },
+
+  async modifyRecommendation(
+    recommendationId: string,
+    payload: AgenticRecommendationModifyRequest,
+  ): Promise<AgenticScheduleRecommendationView> {
+    const res = await api.post<AgenticScheduleRecommendationView>(
+      `/production-scheduling/recommendations/${recommendationId}/modify`,
+      payload,
+    )
+    return res.data
+  },
+
+  async publishRecommendation(
+    recommendationId: string,
+    payload: AgenticRecommendationPublishRequest,
+  ): Promise<AgenticScheduleRecommendationView> {
+    const res = await api.post<AgenticScheduleRecommendationView>(
+      `/production-scheduling/recommendations/${recommendationId}/publish`,
+      payload,
+    )
+    return res.data
+  },
+
+  async listScheduleVersions(supplyPlanId: number): Promise<ProductionScheduleVersionView[]> {
+    const res = await api.get<ProductionScheduleVersionView[]>('/production-scheduling/schedule-versions', {
+      params: { supply_plan_id: supplyPlanId },
+    })
+    return res.data
+  },
+
+  async compareScheduleVersions(
+    supplyPlanId: number,
+    baseVersion: number,
+    targetVersion: number,
+  ): Promise<ProductionScheduleVersionCompareResponse> {
+    const res = await api.get<ProductionScheduleVersionCompareResponse>('/production-scheduling/schedule-versions/compare', {
+      params: {
+        supply_plan_id: supplyPlanId,
+        base_version: baseVersion,
+        target_version: targetVersion,
+      },
+    })
+    return res.data
+  },
+
+  async ingestCanonicalEvent(payload: CanonicalProductionEventIngestRequest): Promise<CanonicalProductionEventResponse> {
+    const res = await api.post<CanonicalProductionEventResponse>('/integrations/events/ingest', payload)
+    return res.data
+  },
+
+  async replayCanonicalEvent(eventId: string): Promise<ProductionEventReplayResponse> {
+    const res = await api.post<ProductionEventReplayResponse>(`/integrations/events/${eventId}/replay`)
+    return res.data
+  },
+
+  async listCanonicalEvents(limit = 100): Promise<CanonicalProductionEventResponse[]> {
+    const res = await api.get<CanonicalProductionEventResponse[]>('/integrations/events', { params: { limit } })
     return res.data
   },
 }

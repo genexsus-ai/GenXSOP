@@ -13,9 +13,13 @@ import type {
   AgenticScheduleRecommendationResponse,
   AgenticScheduleRecommendationView,
   AgenticSeverity,
+  CanonicalProductionEventResponse,
   ProductionCapacitySummary,
   ProductionSchedule,
   ProductionScheduleStatus,
+  ProductionEventSource,
+  ProductionScheduleVersionCompareResponse,
+  ProductionScheduleVersionView,
   SupplyPlan,
 } from '@/types'
 import toast from 'react-hot-toast'
@@ -32,6 +36,7 @@ const EVENT_TYPES: AgenticEventType[] = [
 ]
 const SEVERITY_OPTIONS: AgenticSeverity[] = ['low', 'medium', 'high', 'critical']
 const STATUS_OPTIONS: ProductionScheduleStatus[] = ['draft', 'released', 'in_progress', 'completed']
+const EVENT_SOURCES: ProductionEventSource[] = ['MES', 'ERP', 'IIOT', 'QMS', 'CMMS', 'MANUAL']
 
 export function ProductionSchedulingPage() {
   const [supplyPlans, setSupplyPlans] = useState<SupplyPlan[]>([])
@@ -53,6 +58,20 @@ export function ProductionSchedulingPage() {
   const [runningEvent, setRunningEvent] = useState(false)
   const [eventResult, setEventResult] = useState<AgenticScheduleRecommendationResponse | null>(null)
   const [decisionBusyId, setDecisionBusyId] = useState<string | null>(null)
+  const [eventSource, setEventSource] = useState<ProductionEventSource>('MES')
+  const [externalEventType, setExternalEventType] = useState('MACHINE_DOWN')
+  const [externalEventId, setExternalEventId] = useState(`evt-${Date.now()}`)
+  const [idempotencyKey, setIdempotencyKey] = useState(`idem-${Date.now()}`)
+  const [eventPayloadText, setEventPayloadText] = useState('{"workcenter":"WC-1","line":"Line-1"}')
+  const [events, setEvents] = useState<CanonicalProductionEventResponse[]>([])
+  const [ingestingEvent, setIngestingEvent] = useState(false)
+  const [replayingEventId, setReplayingEventId] = useState<string | null>(null)
+
+  const [versions, setVersions] = useState<ProductionScheduleVersionView[]>([])
+  const [baseVersion, setBaseVersion] = useState<number | undefined>(undefined)
+  const [targetVersion, setTargetVersion] = useState<number | undefined>(undefined)
+  const [compareResult, setCompareResult] = useState<ProductionScheduleVersionCompareResponse | null>(null)
+  const [comparingVersions, setComparingVersions] = useState(false)
 
   const selectedPlan = useMemo(
     () => supplyPlans.find((p) => p.id === selectedSupplyPlanId),
@@ -114,11 +133,42 @@ export function ProductionSchedulingPage() {
     }
   }
 
+  const loadCanonicalEvents = async () => {
+    try {
+      const data = await productionSchedulingService.listCanonicalEvents(20)
+      setEvents(data)
+    } catch {
+      setEvents([])
+    }
+  }
+
+  const loadVersions = async () => {
+    if (!selectedSupplyPlanId) {
+      setVersions([])
+      setCompareResult(null)
+      return
+    }
+    try {
+      const data = await productionSchedulingService.listScheduleVersions(selectedSupplyPlanId)
+      setVersions(data)
+      if (data.length > 0) {
+        const newest = data[0].version_number
+        const oldest = data[data.length - 1].version_number
+        setBaseVersion(oldest)
+        setTargetVersion(newest)
+      }
+    } catch {
+      setVersions([])
+    }
+  }
+
   useEffect(() => { loadSupplyPlans() }, [])
+  useEffect(() => { loadCanonicalEvents() }, [])
   useEffect(() => {
     loadSchedules()
     loadCapacity()
     loadRecommendations()
+    loadVersions()
   }, [selectedSupplyPlanId])
 
   useEffect(() => {
@@ -250,6 +300,97 @@ export function ProductionSchedulingPage() {
       // handled globally
     } finally {
       setDecisionBusyId(null)
+    }
+  }
+
+  const modifyRecommendation = async (recommendationId: string) => {
+    setDecisionBusyId(recommendationId)
+    try {
+      await productionSchedulingService.modifyRecommendation(recommendationId, {
+        note: 'Planner adjusted recommendation from scheduling workspace',
+      })
+      toast.success('Recommendation revised')
+      loadRecommendations()
+    } finally {
+      setDecisionBusyId(null)
+    }
+  }
+
+  const publishRecommendation = async (recommendationId: string) => {
+    setDecisionBusyId(recommendationId)
+    try {
+      await productionSchedulingService.publishRecommendation(recommendationId, {
+        note: 'Published from scheduling workspace',
+        apply_actions: true,
+      })
+      toast.success('Recommendation published to schedule version')
+      loadRecommendations()
+      loadSchedules()
+      loadCapacity()
+      loadVersions()
+    } finally {
+      setDecisionBusyId(null)
+    }
+  }
+
+  const ingestCanonicalEvent = async () => {
+    setIngestingEvent(true)
+    try {
+      let parsedPayload: Record<string, unknown> = {}
+      try {
+        parsedPayload = JSON.parse(eventPayloadText)
+      } catch {
+        toast.error('Event payload must be valid JSON')
+        return
+      }
+
+      const result = await productionSchedulingService.ingestCanonicalEvent({
+        event_id: externalEventId,
+        event_type: externalEventType,
+        event_source: eventSource,
+        event_timestamp: new Date().toISOString(),
+        plant_id: 'plant-1',
+        line_id: 'line-1',
+        resource_id: 'resource-1',
+        severity: eventSeverity,
+        payload: parsedPayload,
+        idempotency_key: idempotencyKey,
+      })
+
+      toast.success(result.duplicate ? 'Duplicate event detected' : 'Event ingested')
+      setExternalEventId(`evt-${Date.now()}`)
+      setIdempotencyKey(`idem-${Date.now()}`)
+      loadCanonicalEvents()
+    } catch {
+      // global handler
+    } finally {
+      setIngestingEvent(false)
+    }
+  }
+
+  const replayCanonicalEvent = async (eventId: string) => {
+    setReplayingEventId(eventId)
+    try {
+      await productionSchedulingService.replayCanonicalEvent(eventId)
+      toast.success(`Replay requested for ${eventId}`)
+      loadCanonicalEvents()
+    } finally {
+      setReplayingEventId(null)
+    }
+  }
+
+  const runVersionCompare = async () => {
+    if (!selectedSupplyPlanId || !baseVersion || !targetVersion) return
+    setComparingVersions(true)
+    try {
+      const result = await productionSchedulingService.compareScheduleVersions(
+        selectedSupplyPlanId,
+        baseVersion,
+        targetVersion,
+      )
+      setCompareResult(result)
+    } finally {
+      setComparingVersions(false)
     }
   }
 
@@ -431,9 +572,31 @@ export function ProductionSchedulingPage() {
                         >
                           Reject
                         </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => modifyRecommendation(r.recommendation_id)}
+                          loading={decisionBusyId === r.recommendation_id}
+                        >
+                          Modify
+                        </Button>
+                      </div>
+                    ) : r.status === 'approved' ? (
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          onClick={() => publishRecommendation(r.recommendation_id)}
+                          loading={decisionBusyId === r.recommendation_id}
+                        >
+                          Publish
+                        </Button>
                       </div>
                     ) : (
-                      <span className="text-xs text-gray-500">{r.decision_note || 'Decided'}</span>
+                      <span className="text-xs text-gray-500">
+                        {r.decision_note || 'Decided'}
+                        {r.revision_number ? ` • rev ${r.revision_number}` : ''}
+                        {r.published_at ? ` • ${new Date(r.published_at).toLocaleDateString()}` : ''}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -441,6 +604,94 @@ export function ProductionSchedulingPage() {
             </tbody>
           </table>
         </div>
+      </Card>
+
+      <Card title="Exception Dashboard (Canonical Events)" subtitle="Ingest, deduplicate, replay, and monitor cross-system events">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+          <select value={eventSource} onChange={(e) => setEventSource(e.target.value as ProductionEventSource)} className="px-3 py-2 text-sm border border-gray-300 rounded-lg">
+            {EVENT_SOURCES.map((src) => <option key={src} value={src}>{src}</option>)}
+          </select>
+          <input value={externalEventType} onChange={(e) => setExternalEventType(e.target.value)} className="px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="Event type" />
+          <input value={externalEventId} onChange={(e) => setExternalEventId(e.target.value)} className="px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="event_id" />
+          <input value={idempotencyKey} onChange={(e) => setIdempotencyKey(e.target.value)} className="px-3 py-2 text-sm border border-gray-300 rounded-lg" placeholder="idempotency_key" />
+          <Button onClick={ingestCanonicalEvent} loading={ingestingEvent}>Ingest Event</Button>
+        </div>
+        <textarea value={eventPayloadText} onChange={(e) => setEventPayloadText(e.target.value)} className="mt-3 w-full h-20 px-3 py-2 text-xs font-mono border border-gray-300 rounded-lg" />
+
+        <div className="mt-4 overflow-x-auto border border-gray-100 rounded-lg">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                {['Event ID', 'Source', 'Type', 'Status', 'Duplicate', 'Replay Count', 'Actions'].map((h) => (
+                  <th key={h} className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {events.map((evt) => (
+                <tr key={evt.event_id}>
+                  <td className="px-4 py-2.5 font-mono text-xs">{evt.event_id}</td>
+                  <td className="px-4 py-2.5">{evt.event_source}</td>
+                  <td className="px-4 py-2.5">{evt.event_type}</td>
+                  <td className="px-4 py-2.5">{evt.processing_status}</td>
+                  <td className="px-4 py-2.5">{evt.duplicate ? `yes (${evt.duplicate_of_event_id})` : 'no'}</td>
+                  <td className="px-4 py-2.5 tabular-nums">{evt.replay_count}</td>
+                  <td className="px-4 py-2.5">
+                    <Button size="sm" variant="outline" loading={replayingEventId === evt.event_id} onClick={() => replayCanonicalEvent(evt.event_id)}>
+                      Replay
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card title="Simulation Workspace" subtitle="Compare published schedule versions and inspect change impact">
+        {versions.length === 0 ? (
+          <p className="text-sm text-gray-500">No versions published yet. Publish an approved recommendation to create versions.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+              <select value={baseVersion ?? ''} onChange={(e) => setBaseVersion(Number(e.target.value))} className="px-3 py-2 text-sm border border-gray-300 rounded-lg">
+                {versions.map((v) => <option key={`b-${v.version_number}`} value={v.version_number}>Base v{v.version_number}</option>)}
+              </select>
+              <select value={targetVersion ?? ''} onChange={(e) => setTargetVersion(Number(e.target.value))} className="px-3 py-2 text-sm border border-gray-300 rounded-lg">
+                {versions.map((v) => <option key={`t-${v.version_number}`} value={v.version_number}>Target v{v.version_number}</option>)}
+              </select>
+              <Button onClick={runVersionCompare} loading={comparingVersions}>Compare Versions</Button>
+            </div>
+
+            {compareResult && (
+              <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+                Compared v{compareResult.base_version} → v{compareResult.target_version}: {compareResult.changed_rows} row(s) changed.
+              </div>
+            )}
+
+            <div className="mt-4 overflow-x-auto border border-gray-100 rounded-lg">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    {['Version', 'Recommendation ID', 'Published At', 'Published By'].map((h) => (
+                      <th key={h} className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {versions.map((v) => (
+                    <tr key={v.version_number}>
+                      <td className="px-4 py-2.5">v{v.version_number}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs">{v.recommendation_id}</td>
+                      <td className="px-4 py-2.5">{v.published_at ? new Date(v.published_at).toLocaleString() : '-'}</td>
+                      <td className="px-4 py-2.5">{v.published_by ?? '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </Card>
 
       <Card title="Capacity Diagnostics" subtitle="Quick load validation against supply plan max capacity">

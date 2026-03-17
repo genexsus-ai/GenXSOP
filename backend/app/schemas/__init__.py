@@ -49,6 +49,9 @@ from app.schemas.integration import (
     ERPInventorySyncRequest,
     ERPDemandActualSyncRequest,
     IntegrationOperationResponse,
+    CanonicalProductionEventIngestRequest,
+    CanonicalProductionEventResponse,
+    ProductionEventReplayResponse,
 )
 from app.schemas.forecast_consensus import (
     ForecastConsensusCreate,
@@ -66,6 +69,10 @@ from app.schemas.agentic_scheduling import (
     AgenticScheduleRecommendationResponse,
     AgenticScheduleRecommendationView,
     AgenticRecommendationDecisionRequest,
+    AgenticRecommendationModifyRequest,
+    AgenticRecommendationPublishRequest,
+    ProductionScheduleVersionView,
+    ProductionScheduleVersionCompareResponse,
     AgenticOrchestrationAlternative,
     AgenticOrchestrationResponse,
 )

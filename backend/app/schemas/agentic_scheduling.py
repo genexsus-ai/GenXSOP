@@ -15,7 +15,20 @@ AgenticEventType = Literal[
 ]
 
 AgenticSeverity = Literal["low", "medium", "high", "critical"]
-AgenticRecommendationStatus = Literal["pending_approval", "approved", "rejected"]
+AgenticRecommendationStatus = Literal["pending_approval", "approved", "rejected", "published"]
+AgenticWorkflowState = Literal[
+    "RECEIVED",
+    "CLASSIFIED",
+    "PLANNED",
+    "VALIDATED",
+    "OPTIMIZED",
+    "SIMULATED",
+    "PENDING_APPROVAL",
+    "APPROVED",
+    "REJECTED",
+    "PUBLISHED",
+    "FAILED",
+]
 
 
 class AgenticScheduleEventRequest(BaseModel):
@@ -46,7 +59,7 @@ class AgenticScheduleAction(BaseModel):
 class AgenticScheduleRecommendationResponse(BaseModel):
     recommendation_id: str
     workflow_id: str
-    state: Literal["RECEIVED", "CLASSIFIED", "PENDING_APPROVAL"]
+    state: AgenticWorkflowState
 
     event_type: AgenticEventType
     severity: AgenticSeverity
@@ -64,19 +77,49 @@ class AgenticScheduleRecommendationView(BaseModel):
     event_type: AgenticEventType
     severity: AgenticSeverity
     status: AgenticRecommendationStatus
-    state: str
+    state: AgenticWorkflowState
     impacted_rows: int
     recommendation_summary: str
     explanation: str
     actions: List[AgenticScheduleAction]
     decision_note: Optional[str] = None
     decided_at: Optional[datetime] = None
+    source_recommendation_id: Optional[str] = None
+    revision_number: int = 1
+    published_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
 
 class AgenticRecommendationDecisionRequest(BaseModel):
     note: Optional[str] = None
+
+
+class AgenticRecommendationModifyRequest(BaseModel):
+    note: Optional[str] = None
+    recommendation_summary: Optional[str] = None
+    actions: Optional[List[AgenticScheduleAction]] = None
+
+
+class AgenticRecommendationPublishRequest(BaseModel):
+    note: Optional[str] = None
+    apply_actions: bool = True
+
+
+class ProductionScheduleVersionView(BaseModel):
+    supply_plan_id: int
+    version_number: int
+    recommendation_id: Optional[str] = None
+    published_by: Optional[int] = None
+    published_at: datetime
+
+
+class ProductionScheduleVersionCompareResponse(BaseModel):
+    supply_plan_id: int
+    base_version: int
+    target_version: int
+    changed_rows: int
+    changed_schedule_ids: List[int]
 
 
 class AgenticOrchestrationAlternative(BaseModel):

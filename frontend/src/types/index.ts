@@ -243,7 +243,7 @@ export type AgenticEventType =
   | 'LABOR_UNAVAILABLE'
 
 export type AgenticSeverity = 'low' | 'medium' | 'high' | 'critical'
-export type AgenticRecommendationStatus = 'pending_approval' | 'approved' | 'rejected'
+export type AgenticRecommendationStatus = 'pending_approval' | 'approved' | 'rejected' | 'published'
 
 export interface AgenticScheduleAction {
   action_type: 'resequence' | 'expedite' | 'hold' | 'manual_review'
@@ -306,8 +306,74 @@ export interface AgenticScheduleRecommendationView {
   actions: AgenticScheduleAction[]
   decision_note?: string
   decided_at?: string
+  source_recommendation_id?: string
+  revision_number?: number
+  published_at?: string
   created_at: string
   updated_at: string
+}
+
+export interface AgenticRecommendationModifyRequest {
+  recommendation_summary?: string
+  note?: string
+  actions?: AgenticScheduleAction[]
+}
+
+export interface AgenticRecommendationPublishRequest {
+  note?: string
+  apply_actions?: boolean
+}
+
+export interface ProductionScheduleVersionView {
+  supply_plan_id: number
+  version_number: number
+  recommendation_id: string
+  published_by?: number
+  published_at?: string
+}
+
+export interface ProductionScheduleVersionCompareResponse {
+  supply_plan_id: number
+  base_version: number
+  target_version: number
+  changed_rows: number
+  changed_schedule_ids: number[]
+}
+
+export type ProductionEventSource = 'ERP' | 'MES' | 'IIOT' | 'QMS' | 'CMMS' | 'MANUAL'
+
+export interface CanonicalProductionEventIngestRequest {
+  event_id: string
+  event_type: string
+  event_source: ProductionEventSource
+  event_timestamp: string
+  plant_id?: string
+  line_id?: string
+  resource_id?: string
+  order_id?: string
+  severity?: AgenticSeverity
+  payload: Record<string, unknown>
+  correlation_id?: string
+  trace_id?: string
+  idempotency_key?: string
+}
+
+export interface CanonicalProductionEventResponse {
+  event_id: string
+  event_type: string
+  event_source: ProductionEventSource
+  event_timestamp: string
+  processing_status: 'RECEIVED' | 'NORMALIZED' | 'PROCESSED' | 'FAILED' | 'REPLAYED'
+  duplicate: boolean
+  duplicate_of_event_id?: string
+  replay_count: number
+}
+
+export interface ProductionEventReplayResponse {
+  event_id: string
+  replay_count: number
+  processing_status: 'RECEIVED' | 'NORMALIZED' | 'PROCESSED' | 'FAILED' | 'REPLAYED'
+  message: string
 }
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

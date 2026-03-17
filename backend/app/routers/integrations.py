@@ -9,6 +9,9 @@ from app.schemas.integration import (
     ERPInventorySyncRequest,
     ERPDemandActualSyncRequest,
     IntegrationOperationResponse,
+    CanonicalProductionEventIngestRequest,
+    CanonicalProductionEventResponse,
+    ProductionEventReplayResponse,
 )
 from app.services.integration_service import IntegrationService
 
@@ -65,3 +68,30 @@ def publish_supply_plan_to_erp(
     _: User = Depends(require_roles(INTEGRATION_ROLES)),
 ):
     return service.publish_supply_plan(plan_id)
+
+
+@router.post("/events/ingest", response_model=CanonicalProductionEventResponse)
+def ingest_production_event(
+    payload: CanonicalProductionEventIngestRequest,
+    service: IntegrationService = Depends(get_integration_service),
+    _: User = Depends(require_roles(INTEGRATION_ROLES)),
+):
+    return service.ingest_production_event(payload)
+
+
+@router.post("/events/{event_id}/replay", response_model=ProductionEventReplayResponse)
+def replay_production_event(
+    event_id: str,
+    service: IntegrationService = Depends(get_integration_service),
+    _: User = Depends(require_roles(INTEGRATION_ROLES)),
+):
+    return service.replay_production_event(event_id)
+
+
+@router.get("/events", response_model=list[CanonicalProductionEventResponse])
+def list_production_events(
+    limit: int = 100,
+    service: IntegrationService = Depends(get_integration_service),
+    _: User = Depends(require_roles(INTEGRATION_ROLES)),
+):
+    return service.list_recent_events(limit=limit)

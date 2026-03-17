@@ -27,11 +27,12 @@ class AgenticScheduleRecommendation(Base):
             name="ck_agentic_sched_rec_severity",
         ),
         CheckConstraint(
-            "state IN ('RECEIVED', 'CLASSIFIED', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED')",
+            "state IN ('RECEIVED', 'CLASSIFIED', 'PLANNED', 'VALIDATED', 'OPTIMIZED', 'SIMULATED', "
+            "'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'PUBLISHED', 'FAILED')",
             name="ck_agentic_sched_rec_state",
         ),
         CheckConstraint(
-            "status IN ('pending_approval', 'approved', 'rejected')",
+            "status IN ('pending_approval', 'approved', 'rejected', 'published')",
             name="ck_agentic_sched_rec_status",
         ),
         Index("ix_agentic_sched_rec_status_created", "status", "created_at"),
@@ -59,11 +60,15 @@ class AgenticScheduleRecommendation(Base):
     explanation = Column(Text, nullable=False)
     actions_json = Column(Text, nullable=False)
 
-    state = Column(String(30), nullable=False, default="PENDING_APPROVAL")
+    state = Column(String(30), nullable=False, default="SIMULATED")
     status = Column(String(30), nullable=False, default="pending_approval")
     decision_note = Column(Text, nullable=True)
     decided_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     decided_at = Column(DateTime, nullable=True)
+    published_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    source_recommendation_id = Column(String(64), ForeignKey("agentic_schedule_recommendations.recommendation_id"), nullable=True, index=True)
+    revision_number = Column(Integer, nullable=False, default=1)
 
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=func.now(), nullable=False)

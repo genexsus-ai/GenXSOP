@@ -12,9 +12,13 @@ from app.dependencies import get_current_user, require_roles
 from app.models.user import User
 from app.schemas.agentic_scheduling import (
     AgenticRecommendationDecisionRequest,
+    AgenticRecommendationModifyRequest,
+    AgenticRecommendationPublishRequest,
     AgenticScheduleEventRequest,
     AgenticScheduleRecommendationResponse,
     AgenticScheduleRecommendationView,
+    ProductionScheduleVersionCompareResponse,
+    ProductionScheduleVersionView,
 )
 from app.schemas.production_schedule import (
     ProductionCapacitySummaryResponse,
@@ -176,6 +180,70 @@ def reject_event_recommendation(
         recommendation_id=recommendation_id,
         body=body,
         user_id=current_user.id,
+    )
+
+
+@router.post(
+    "/recommendations/{recommendation_id}/modify",
+    response_model=AgenticScheduleRecommendationView,
+)
+def modify_event_recommendation(
+    recommendation_id: str,
+    body: AgenticRecommendationModifyRequest,
+    service: AgenticSchedulingService = Depends(get_agentic_service),
+    current_user: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    return service.modify_recommendation(
+        recommendation_id=recommendation_id,
+        body=body,
+        user_id=current_user.id,
+    )
+
+
+@router.post(
+    "/recommendations/{recommendation_id}/publish",
+    response_model=AgenticScheduleRecommendationView,
+)
+def publish_event_recommendation(
+    recommendation_id: str,
+    body: AgenticRecommendationPublishRequest,
+    service: AgenticSchedulingService = Depends(get_agentic_service),
+    current_user: User = Depends(require_roles(PLANNER_ROLES)),
+):
+    return service.publish_recommendation(
+        recommendation_id=recommendation_id,
+        body=body,
+        user_id=current_user.id,
+    )
+
+
+@router.get(
+    "/schedule-versions",
+    response_model=List[ProductionScheduleVersionView],
+)
+def list_schedule_versions(
+    supply_plan_id: int,
+    service: AgenticSchedulingService = Depends(get_agentic_service),
+    _: User = Depends(get_current_user),
+):
+    return service.list_schedule_versions(supply_plan_id=supply_plan_id)
+
+
+@router.get(
+    "/schedule-versions/compare",
+    response_model=ProductionScheduleVersionCompareResponse,
+)
+def compare_schedule_versions(
+    supply_plan_id: int,
+    base_version: int,
+    target_version: int,
+    service: AgenticSchedulingService = Depends(get_agentic_service),
+    _: User = Depends(get_current_user),
+):
+    return service.compare_schedule_versions(
+        supply_plan_id=supply_plan_id,
+        base_version=base_version,
+        target_version=target_version,
     )
 
 

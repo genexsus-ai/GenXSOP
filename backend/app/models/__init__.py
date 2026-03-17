@@ -11,6 +11,8 @@ from app.models.scenario import Scenario
 from app.models.sop_cycle import SOPCycle
 from app.models.kpi_metric import KPIMetric
 from app.models.production_schedule import ProductionSchedule
+from app.models.production_schedule_snapshot import ProductionScheduleSnapshot
+from app.models.production_event import ProductionEvent
 from app.models.agentic_schedule_recommendation import AgenticScheduleRecommendation
 from app.models.inventory_policy_exception import InventoryPolicyException
 from app.models.inventory_policy_recommendation import InventoryPolicyRecommendation
@@ -32,6 +34,8 @@ __all__ = [
     "SOPCycle",
     "KPIMetric",
     "ProductionSchedule",
+    "ProductionScheduleSnapshot",
+    "ProductionEvent",
     "AgenticScheduleRecommendation",
     "InventoryPolicyException",
     "InventoryPolicyRecommendation",

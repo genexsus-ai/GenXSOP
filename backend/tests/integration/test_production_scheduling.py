@@ -215,3 +215,96 @@ class TestProductionScheduling:
     ):
         resp = client.get("/api/v1/production-scheduling/recommendations-stream")
         assert resp.status_code == 422
+
+    def test_modify_publish_and_version_compare_flow(
+        self,
+        client: TestClient,
+        admin_headers,
+        supply_plan,
+    ):
+        client.post(
+            "/api/v1/production-scheduling/generate",
+            headers=admin_headers,
+            json={
+                "supply_plan_id": supply_plan.id,
+                "workcenters": ["WC-1"],
+                "lines": ["Line-1"],
+                "shifts": ["Shift-A", "Shift-B"],
+            },
+        )
+
+        create_resp = client.post(
+            "/api/v1/production-scheduling/events/recommendation",
+            headers=admin_headers,
+            json={
+                "event_type": "MACHINE_DOWN",
+                "severity": "high",
+                "event_timestamp": "2026-03-01T12:00:00Z",
+                "supply_plan_id": supply_plan.id,
+            },
+        )
+        assert create_resp.status_code == 200
+        base_rec_id = create_resp.json()["recommendation_id"]
+
+        modify_resp = client.post(
+            f"/api/v1/production-scheduling/recommendations/{base_rec_id}/modify",
+            headers=admin_headers,
+            json={
+                "note": "planner revised",
+                "recommendation_summary": "Planner-updated summary",
+                "actions": [
+                    {
+                        "action_type": "resequence",
+                        "schedule_id": 1,
+                        "from_sequence": 1,
+                        "to_sequence": 2,
+                        "reason": "manual tweak",
+                        "confidence": 0.71,
+                    }
+                ],
+            },
+        )
+        assert modify_resp.status_code == 200
+        modified = modify_resp.json()
+        assert modified["source_recommendation_id"] == base_rec_id
+        assert modified["revision_number"] >= 2
+
+        approve_resp = client.post(
+            f"/api/v1/production-scheduling/recommendations/{modified['recommendation_id']}/approve",
+            headers=admin_headers,
+            json={"note": "approved for publish"},
+        )
+        assert approve_resp.status_code == 200
+        assert approve_resp.json()["status"] == "approved"
+
+        publish_resp = client.post(
+            f"/api/v1/production-scheduling/recommendations/{modified['recommendation_id']}/publish",
+            headers=admin_headers,
+            json={"note": "publish now", "apply_actions": True},
+        )
+        assert publish_resp.status_code == 200
+        published = publish_resp.json()
+        assert published["status"] == "published"
+        assert published["state"] == "PUBLISHED"
+        assert published["published_at"] is not None
+
+        versions_resp = client.get(
+            f"/api/v1/production-scheduling/schedule-versions?supply_plan_id={supply_plan.id}",
+            headers=admin_headers,
+        )
+        assert versions_resp.status_code == 200
+        versions = versions_resp.json()
+        assert len(versions) >= 1
+
+        compare_resp = client.get(
+            (
+                f"/api/v1/production-scheduling/schedule-versions/compare"
+                f"?supply_plan_id={supply_plan.id}&base_version=1&target_version=1"
+            ),
+            headers=admin_headers,
+        )
+        assert compare_resp.status_code == 200
+        compare_data = compare_resp.json()
+        assert compare_data["supply_plan_id"] == supply_plan.id
+        assert compare_data["base_version"] == 1
+        assert compare_data["target_version"] == 1

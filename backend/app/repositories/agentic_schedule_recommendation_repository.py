@@ -22,6 +22,7 @@ class AgenticScheduleRecommendationRepository(BaseRepository[AgenticScheduleReco
         status: Optional[str] = None,
         supply_plan_id: Optional[int] = None,
         product_id: Optional[int] = None,
+        source_recommendation_id: Optional[str] = None,
     ) -> List[AgenticScheduleRecommendation]:
         q = self.db.query(AgenticScheduleRecommendation)
         if status:
@@ -30,4 +31,18 @@ class AgenticScheduleRecommendationRepository(BaseRepository[AgenticScheduleReco
             q = q.filter(AgenticScheduleRecommendation.supply_plan_id == supply_plan_id)
         if product_id:
             q = q.filter(AgenticScheduleRecommendation.product_id == product_id)
+        if source_recommendation_id:
+            q = q.filter(AgenticScheduleRecommendation.source_recommendation_id == source_recommendation_id)
         return q.order_by(AgenticScheduleRecommendation.created_at.desc()).all()
+
+    def max_revision_for_chain(self, recommendation_id: str) -> int:
+        row = (
+            self.db.query(AgenticScheduleRecommendation)
+            .filter(
+                (AgenticScheduleRecommendation.recommendation_id == recommendation_id)
+                | (AgenticScheduleRecommendation.source_recommendation_id == recommendation_id)
+            )
+            .order_by(AgenticScheduleRecommendation.revision_number.desc())
+            .first()
+        )
+        return int(row.revision_number) if row else 1
