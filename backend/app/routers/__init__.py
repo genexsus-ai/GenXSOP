@@ -12,6 +12,7 @@ from app.routers import (
     dashboard,
     integrations,
     production_scheduling,
+    agentic_config,
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "dashboard",
     "integrations",
     "production_scheduling",
+    "agentic_config",
 ]

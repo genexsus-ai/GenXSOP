@@ -202,3 +202,55 @@ def test_canonical_event_out_of_order_and_retry_budget_dead_letter_context(clien
     assert listed.status_code == 200
     old_row = next(i for i in listed.json() if i["event_id"] == "evt-old")
     assert old_row["dead_letter_reason"] is not None
+
+
+def test_agentic_config_objectives_and_policies_defaults_and_upsert(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin6@test.com", "admin")
+
+    get_obj = client.get("/api/v1/config/objectives", headers=admin_headers)
+    assert get_obj.status_code == 200
+    obj_body = get_obj.json()
+    assert obj_body["config_type"] == "objectives"
+    assert obj_body["config"]["tardiness"] == 0.45
+
+    put_obj = client.put(
+        "/api/v1/config/objectives",
+        headers=admin_headers,
+        json={
+            "scope": "global",
+            "name": "default",
+            "config": {
+                "tardiness": 0.5,
+                "changeover": 0.2,
+                "utilization": 0.3,
+            },
+        },
+    )
+    assert put_obj.status_code == 200
+    put_obj_body = put_obj.json()
+    assert put_obj_body["config"]["tardiness"] == 0.5
+    assert put_obj_body["version"] >= 1
+
+    get_pol = client.get("/api/v1/config/policies", headers=admin_headers)
+    assert get_pol.status_code == 200
+    pol_body = get_pol.json()
+    assert pol_body["config_type"] == "policies"
+    assert pol_body["config"]["maker_checker_required"] is True
+
+
+def test_agentic_config_upsert_forbidden_for_non_privileged_role(client: TestClient, db):
+    planner_headers = _auth_headers(db, "planner2@test.com", "demand_planner")
+
+    resp = client.put(
+        "/api/v1/config/policies",
+        headers=planner_headers,
+        json={
+            "scope": "global",
+            "name": "default",
+            "config": {
+                "auto_publish": True,
+                "maker_checker_required": False,
+            },
+        },
+    )
+    assert resp.status_code == 403

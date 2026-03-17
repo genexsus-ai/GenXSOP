@@ -76,3 +76,7 @@ from app.schemas.agentic_scheduling import (
     AgenticOrchestrationAlternative,
     AgenticOrchestrationResponse,
 )
+from app.schemas.agentic_scheduling_config import (
+    AgenticSchedulingConfigUpsertRequest,
+    AgenticSchedulingConfigResponse,
+)

@@ -14,6 +14,7 @@ from app.models.production_schedule import ProductionSchedule
 from app.models.production_schedule_snapshot import ProductionScheduleSnapshot
 from app.models.production_event import ProductionEvent
 from app.models.agentic_schedule_recommendation import AgenticScheduleRecommendation
+from app.models.agentic_scheduling_config import AgenticSchedulingConfig
 from app.models.inventory_policy_exception import InventoryPolicyException
 from app.models.inventory_policy_recommendation import InventoryPolicyRecommendation
 from app.models.inventory_policy_run import InventoryPolicyRun
@@ -37,6 +38,7 @@ __all__ = [
     "ProductionScheduleSnapshot",
     "ProductionEvent",
     "AgenticScheduleRecommendation",
+    "AgenticSchedulingConfig",
     "InventoryPolicyException",
     "InventoryPolicyRecommendation",
     "InventoryPolicyRun",

@@ -13,6 +13,7 @@ from app.repositories.production_schedule_repository import ProductionScheduleRe
 from app.repositories.production_schedule_snapshot_repository import ProductionScheduleSnapshotRepository
 from app.repositories.production_event_repository import ProductionEventRepository
 from app.repositories.agentic_schedule_recommendation_repository import AgenticScheduleRecommendationRepository
+from app.repositories.agentic_scheduling_config_repository import AgenticSchedulingConfigRepository
 from app.repositories.inventory_exception_repository import InventoryExceptionRepository
 from app.repositories.inventory_recommendation_repository import InventoryRecommendationRepository
 
@@ -32,6 +33,7 @@ __all__ = [
     "ProductionScheduleSnapshotRepository",
     "ProductionEventRepository",
     "AgenticScheduleRecommendationRepository",
+    "AgenticSchedulingConfigRepository",
     "InventoryExceptionRepository",
     "InventoryRecommendationRepository",
 ]
