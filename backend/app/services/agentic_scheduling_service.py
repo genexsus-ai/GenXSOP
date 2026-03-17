@@ -40,6 +40,18 @@ class AgenticSchedulingService:
         self._recommendation_repo = AgenticScheduleRecommendationRepository(db)
         self._snapshot_repo = ProductionScheduleSnapshotRepository(db)
         self._orchestrator = AgenticOrchestrationService()
+        self._allowed_status_transitions = {
+            "pending_approval": {"approved", "rejected"},
+            "approved": {"published"},
+            "rejected": set(),
+            "published": set(),
+        }
+        self._status_to_state = {
+            "pending_approval": "PENDING_APPROVAL",
+            "approved": "APPROVED",
+            "rejected": "REJECTED",
+            "published": "PUBLISHED",
+        }
 
     def recommend_for_event(
         self,
@@ -177,17 +189,10 @@ class AgenticSchedulingService:
         row = self._recommendation_repo.get_by_recommendation_id(recommendation_id)
         if not row:
             raise to_http_exception(EntityNotFoundException("AgenticScheduleRecommendation", recommendation_id))
-        if row.status != "pending_approval":
-            raise to_http_exception(
-                BusinessRuleViolationException(
-                    f"Recommendation already decided with status '{row.status}'."
-                )
-            )
-        row = self._recommendation_repo.update(
-            row,
-            {
-                "status": "approved",
-                "state": "APPROVED",
+        row = self._transition_recommendation(
+            row=row,
+            target_status="approved",
+            updates={
                 "decision_note": body.note,
                 "decided_by": user_id,
                 "decided_at": datetime.utcnow(),
@@ -204,17 +209,10 @@ class AgenticSchedulingService:
         row = self._recommendation_repo.get_by_recommendation_id(recommendation_id)
         if not row:
             raise to_http_exception(EntityNotFoundException("AgenticScheduleRecommendation", recommendation_id))
-        if row.status != "pending_approval":
-            raise to_http_exception(
-                BusinessRuleViolationException(
-                    f"Recommendation already decided with status '{row.status}'."
-                )
-            )
-        row = self._recommendation_repo.update(
-            row,
-            {
-                "status": "rejected",
-                "state": "REJECTED",
+        row = self._transition_recommendation(
+            row=row,
+            target_status="rejected",
+            updates={
                 "decision_note": body.note,
                 "decided_by": user_id,
                 "decided_at": datetime.utcnow(),
@@ -231,12 +229,7 @@ class AgenticSchedulingService:
         row = self._recommendation_repo.get_by_recommendation_id(recommendation_id)
         if not row:
             raise to_http_exception(EntityNotFoundException("AgenticScheduleRecommendation", recommendation_id))
-        if row.status != "approved":
-            raise to_http_exception(
-                BusinessRuleViolationException(
-                    f"Only approved recommendations can be published (current={row.status})."
-                )
-            )
+        self._validate_status_transition(current=row.status, target="published")
 
         actions = self._actions_from_json(row.actions_json)
         if body.apply_actions:
@@ -249,11 +242,10 @@ class AgenticSchedulingService:
         )
 
         note = body.note or f"Published as schedule version {version.version_number}."
-        row = self._recommendation_repo.update(
-            row,
-            {
-                "status": "published",
-                "state": "PUBLISHED",
+        row = self._transition_recommendation(
+            row=row,
+            target_status="published",
+            updates={
                 "decision_note": note,
                 "published_by": user_id,
                 "published_at": datetime.utcnow(),
@@ -335,6 +327,20 @@ class AgenticSchedulingService:
                 )
             ]
 
+        if body.event_type == "DOWNTIME_PLANNED":
+            target_id = schedule_ids[0]
+            from_seq = sequence_orders[0]
+            return [
+                AgenticScheduleAction(
+                    action_type="hold",
+                    schedule_id=target_id,
+                    from_sequence=from_seq,
+                    to_sequence=from_seq,
+                    reason="Planned downtime window detected; hold impacted slot and preserve continuity.",
+                    confidence=0.8,
+                )
+            ]
+
         if body.event_type == "ORDER_PRIORITY_CHANGED":
             target_idx = 0
             for idx, seq in enumerate(sequence_orders):
@@ -364,6 +370,35 @@ class AgenticSchedulingService:
                     to_sequence=to_seq,
                     reason=f"{body.event_type} recovered constrained capacity; consider earlier placement.",
                     confidence=0.7,
+                )
+            ]
+
+        if body.event_type == "ORDER_RELEASED":
+            target_id = schedule_ids[0]
+            from_seq = sequence_orders[0]
+            return [
+                AgenticScheduleAction(
+                    action_type="expedite",
+                    schedule_id=target_id,
+                    from_sequence=from_seq,
+                    to_sequence=min_seq,
+                    reason="New released order entered executable queue; prioritize to reduce downstream lateness.",
+                    confidence=0.74,
+                )
+            ]
+
+        if body.event_type == "WIP_UPDATED":
+            target_id = schedule_ids[0]
+            from_seq = sequence_orders[0]
+            to_seq = max(min_seq, from_seq - 1)
+            return [
+                AgenticScheduleAction(
+                    action_type="resequence",
+                    schedule_id=target_id,
+                    from_sequence=from_seq,
+                    to_sequence=to_seq,
+                    reason="WIP progression update indicates readiness; pull-forward candidate slot.",
+                    confidence=0.69,
                 )
             ]
 
@@ -415,7 +450,7 @@ class AgenticSchedulingService:
             recommendation_summary=payload.recommendation_summary,
             explanation=payload.explanation,
             actions_json=json.dumps([a.model_dump() for a in payload.actions]),
-            state="SIMULATED",
+            state="PENDING_APPROVAL",
             status="pending_approval",
             created_by=user_id,
         )
@@ -504,3 +539,26 @@ class AgenticSchedulingService:
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+    def _validate_status_transition(self, current: str, target: str) -> None:
+        allowed = self._allowed_status_transitions.get(current, set())
+        if target not in allowed:
+            raise to_http_exception(
+                BusinessRuleViolationException(
+                    f"Invalid recommendation transition: {current} -> {target}."
+                )
+            )
+
+    def _transition_recommendation(
+        self,
+        row: AgenticScheduleRecommendation,
+        target_status: str,
+        updates: dict,
+    ) -> AgenticScheduleRecommendation:
+        self._validate_status_transition(current=row.status, target=target_status)
+        transition_payload = {
+            "status": target_status,
+            "state": self._status_to_state[target_status],
+            **updates,
+        }
+        return self._recommendation_repo.update(row, transition_payload)

@@ -19,7 +19,8 @@ class AgenticScheduleRecommendation(Base):
     __table_args__ = (
         CheckConstraint(
             "event_type IN ('MACHINE_DOWN', 'MACHINE_RECOVERED', 'ORDER_PRIORITY_CHANGED', "
-            "'MATERIAL_SHORTAGE', 'QUALITY_HOLD', 'QUALITY_RELEASED', 'LABOR_UNAVAILABLE')",
+            "'MATERIAL_SHORTAGE', 'QUALITY_HOLD', 'QUALITY_RELEASED', 'LABOR_UNAVAILABLE', "
+            "'DOWNTIME_PLANNED', 'WIP_UPDATED', 'ORDER_RELEASED')",
             name="ck_agentic_sched_rec_event_type",
         ),
         CheckConstraint(

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,9 @@ AgenticEventType = Literal[
     "QUALITY_HOLD",
     "QUALITY_RELEASED",
     "LABOR_UNAVAILABLE",
+    "DOWNTIME_PLANNED",
+    "WIP_UPDATED",
+    "ORDER_RELEASED",
 ]
 
 AgenticSeverity = Literal["low", "medium", "high", "critical"]
@@ -126,6 +129,7 @@ class AgenticOrchestrationAlternative(BaseModel):
     action: AgenticScheduleAction
     score: float
     simulated_kpis: dict
+    risk_indicators: List[str] = []
 
 
 class AgenticOrchestrationResponse(BaseModel):
@@ -133,6 +137,7 @@ class AgenticOrchestrationResponse(BaseModel):
     recommendation_summary: str
     selected_action: Optional[AgenticScheduleAction] = None
     alternatives: List[AgenticOrchestrationAlternative]
+    objective_weights: Dict[str, float] = {}
 
 
 AgenticScheduleRecommendationResponse.model_rebuild()

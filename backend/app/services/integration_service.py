@@ -1,5 +1,6 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from datetime import timezone
 from sqlalchemy.orm import Session
 
 from app.models.product import Product, Category
@@ -29,6 +30,7 @@ class IntegrationService:
     def __init__(self, db: Session):
         self._db = db
         self._events = ProductionEventRepository(db)
+        self._out_of_order_grace = timedelta(minutes=2)
 
     def sync_products(self, payload: ERPProductSyncRequest) -> IntegrationOperationResponse:
         created = 0
@@ -256,6 +258,7 @@ class IntegrationService:
         self,
         payload: CanonicalProductionEventIngestRequest,
     ) -> CanonicalProductionEventResponse:
+        event_ts = self._to_naive_utc(payload.event_timestamp)
         if payload.idempotency_key:
             existing_by_key = self._events.get_by_idempotency_key(payload.idempotency_key)
             if existing_by_key:
@@ -268,6 +271,10 @@ class IntegrationService:
                     duplicate=True,
                     duplicate_of_event_id=existing_by_key.event_id,
                     replay_count=existing_by_key.replay_count,
+                    retry_count=existing_by_key.retry_count,
+                    max_retries=existing_by_key.max_retries,
+                    out_of_order=bool(existing_by_key.out_of_order),
+                    dead_letter_reason=existing_by_key.dead_letter_reason,
                 )
 
         existing = self._events.get_by_event_id(payload.event_id)
@@ -281,7 +288,28 @@ class IntegrationService:
                 duplicate=True,
                 duplicate_of_event_id=existing.event_id,
                 replay_count=existing.replay_count,
+                retry_count=existing.retry_count,
+                max_retries=existing.max_retries,
+                out_of_order=bool(existing.out_of_order),
+                dead_letter_reason=existing.dead_letter_reason,
             )
+
+        latest_in_scope = self._events.latest_for_scope(
+            event_source=payload.event_source,
+            plant_id=payload.plant_id,
+            line_id=payload.line_id,
+            resource_id=payload.resource_id,
+        )
+        out_of_order = bool(
+            latest_in_scope
+            and event_ts < (self._to_naive_utc(latest_in_scope.event_timestamp) - self._out_of_order_grace)
+        )
+        processing_status = "NORMALIZED"
+        last_error = (
+            "Event is outside reorder grace window and was marked OUT_OF_ORDER for triage."
+            if out_of_order
+            else None
+        )
 
         normalized = self._normalize_event_payload(
             source=payload.event_source,
@@ -304,7 +332,10 @@ class IntegrationService:
             correlation_id=payload.correlation_id,
             trace_id=payload.trace_id,
             idempotency_key=payload.idempotency_key,
-            processing_status="NORMALIZED",
+            processing_status=processing_status,
+            max_retries=payload.max_retries,
+            out_of_order=1 if out_of_order else 0,
+            last_error=last_error,
             processed_at=datetime.utcnow(),
         )
         self._db.add(row)
@@ -320,6 +351,10 @@ class IntegrationService:
             duplicate=False,
             duplicate_of_event_id=row.duplicate_of_event_id,
             replay_count=row.replay_count,
+            retry_count=row.retry_count,
+            max_retries=row.max_retries,
+            out_of_order=bool(row.out_of_order),
+            dead_letter_reason=row.dead_letter_reason,
         )
 
     def replay_production_event(self, event_id: str) -> ProductionEventReplayResponse:
@@ -328,22 +363,38 @@ class IntegrationService:
             return ProductionEventReplayResponse(
                 event_id=event_id,
                 replay_count=0,
+                retry_count=0,
                 processing_status="FAILED",
                 message=f"Event {event_id} not found.",
             )
 
         row.replay_count = int(row.replay_count or 0) + 1
-        row.processing_status = "REPLAYED"
+        row.retry_count = int(row.retry_count or 0) + 1
+        if row.retry_count > int(row.max_retries or 0):
+            row.processing_status = "FAILED"
+            row.dead_letter_reason = (
+                f"Replay retry budget exceeded (retry_count={row.retry_count}, max_retries={row.max_retries})."
+            )
+            row.dead_lettered_at = datetime.utcnow()
+        else:
+            row.processing_status = "REPLAYED"
+            row.dead_letter_reason = None
+            row.dead_lettered_at = None
         row.processed_at = datetime.utcnow()
-        row.last_error = None
+        row.last_error = None if row.processing_status == "REPLAYED" else row.dead_letter_reason
         self._db.commit()
         self._db.refresh(row)
 
         return ProductionEventReplayResponse(
             event_id=row.event_id,
             replay_count=row.replay_count,
+            retry_count=row.retry_count,
             processing_status=row.processing_status,
-            message="Event replay accepted and marked as REPLAYED.",
+            message=(
+                "Event replay accepted and marked as REPLAYED."
+                if row.processing_status == "REPLAYED"
+                else "Event routed to dead-letter context after exceeding retry budget."
+            ),
         )
 
     def list_recent_events(self, limit: int = 100) -> list[CanonicalProductionEventResponse]:
@@ -358,6 +409,10 @@ class IntegrationService:
                 duplicate=bool(r.duplicate_of_event_id),
                 duplicate_of_event_id=r.duplicate_of_event_id,
                 replay_count=r.replay_count,
+                retry_count=r.retry_count,
+                max_retries=r.max_retries,
+                out_of_order=bool(r.out_of_order),
+                dead_letter_reason=r.dead_letter_reason,
             )
             for r in rows
         ]
@@ -419,3 +474,9 @@ class IntegrationService:
             "asset": payload.get("asset") or payload.get("resource_id"),
             "payload": payload,
         }
+
+    @staticmethod
+    def _to_naive_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(timezone.utc).replace(tzinfo=None)

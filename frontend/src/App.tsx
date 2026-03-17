@@ -12,6 +12,7 @@ const DashboardPage  = lazy(() => import('@/pages/DashboardPage').then((m) => ({
 const DemandPage     = lazy(() => import('@/pages/DemandPage').then((m) => ({ default: m.DemandPage })))
 const SupplyPage     = lazy(() => import('@/pages/SupplyPage').then((m) => ({ default: m.SupplyPage })))
 const ProductionSchedulingPage = lazy(() => import('@/pages/ProductionSchedulingPage').then((m) => ({ default: m.ProductionSchedulingPage })))
+const ProductionControlTowerPage = lazy(() => import('@/pages/ProductionControlTowerPage').then((m) => ({ default: m.ProductionControlTowerPage })))
 const InventoryPage  = lazy(() => import('@/pages/InventoryPage').then((m) => ({ default: m.InventoryPage })))
 const ForecastingPage = lazy(() => import('@/pages/ForecastingPage').then((m) => ({ default: m.ForecastingPage })))
 const ScenariosPage  = lazy(() => import('@/pages/ScenariosPage').then((m) => ({ default: m.ScenariosPage })))
@@ -71,6 +72,7 @@ export function App() {
             </Route>
             <Route element={<RequireModule module="production_scheduling" />}>
               <Route path="/production-scheduling" element={<ProductionSchedulingPage />} />
+              <Route path="/production-control-tower" element={<ProductionControlTowerPage />} />
             </Route>
             <Route element={<RequireModule module="inventory" />}>
               <Route path="/inventory" element={<InventoryPage />} />

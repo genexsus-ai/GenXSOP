@@ -31,3 +31,19 @@ class ProductionEventRepository(BaseRepository[ProductionEvent]):
             .limit(limit)
             .all()
         )
+
+    def latest_for_scope(
+        self,
+        event_source: str,
+        plant_id: Optional[str] = None,
+        line_id: Optional[str] = None,
+        resource_id: Optional[str] = None,
+    ) -> Optional[ProductionEvent]:
+        query = self.db.query(ProductionEvent).filter(ProductionEvent.event_source == event_source)
+        if plant_id:
+            query = query.filter(ProductionEvent.plant_id == plant_id)
+        if line_id:
+            query = query.filter(ProductionEvent.line_id == line_id)
+        if resource_id:
+            query = query.filter(ProductionEvent.resource_id == resource_id)
+        return query.order_by(ProductionEvent.event_timestamp.desc()).first()

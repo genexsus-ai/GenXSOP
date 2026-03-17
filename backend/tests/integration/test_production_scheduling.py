@@ -153,6 +153,13 @@ class TestProductionScheduling:
         assert isinstance(data["actions"], list)
         assert data["orchestration"] is not None
         assert data["orchestration"]["workflow_state"] in ["SIMULATED", "FAILED"]
+        assert "objective_weights" in data["orchestration"]
+        assert isinstance(data["orchestration"]["alternatives"], list)
+        if data["orchestration"]["alternatives"]:
+            alt = data["orchestration"]["alternatives"][0]
+            assert "risk_indicators" in alt
+            assert "schedule_adherence_delta_pct" in alt["simulated_kpis"]
+            assert "wip_delta_pct" in alt["simulated_kpis"]
 
         list_resp = client.get(
             f"/api/v1/production-scheduling/recommendations?supply_plan_id={supply_plan.id}",
@@ -201,6 +208,14 @@ class TestProductionScheduling:
         assert approved["status"] == "approved"
         assert approved["state"] == "APPROVED"
 
+        # Invalid transition should fail with explicit guardrail.
+        approve_again = client.post(
+            f"/api/v1/production-scheduling/recommendations/{rec_id}/approve",
+            headers=admin_headers,
+            json={"note": "again"},
+        )
+        assert approve_again.status_code == 400
+
         # Second decision should fail due to guardrail.
         reject_again = client.post(
             f"/api/v1/production-scheduling/recommendations/{rec_id}/reject",
@@ -208,6 +223,88 @@ class TestProductionScheduling:
             json={"note": "Too late"},
         )
         assert reject_again.status_code == 400
+
+    def test_publish_requires_approved_transition_guard(self, client: TestClient, admin_headers, supply_plan):
+        client.post(
+            "/api/v1/production-scheduling/generate",
+            headers=admin_headers,
+            json={
+                "supply_plan_id": supply_plan.id,
+                "workcenters": ["WC-1"],
+                "lines": ["Line-1"],
+                "shifts": ["Shift-A"],
+            },
+        )
+
+        create_resp = client.post(
+            "/api/v1/production-scheduling/events/recommendation",
+            headers=admin_headers,
+            json={
+                "event_type": "MACHINE_DOWN",
+                "severity": "high",
+                "event_timestamp": "2026-03-01T11:30:00Z",
+                "supply_plan_id": supply_plan.id,
+            },
+        )
+        rec_id = create_resp.json()["recommendation_id"]
+
+        publish_without_approve = client.post(
+            f"/api/v1/production-scheduling/recommendations/{rec_id}/publish",
+            headers=admin_headers,
+            json={"note": "should fail", "apply_actions": True},
+        )
+        assert publish_without_approve.status_code == 400
+
+    def test_phase1_extended_event_types_generate_expected_actions(self, client: TestClient, admin_headers, supply_plan):
+        client.post(
+            "/api/v1/production-scheduling/generate",
+            headers=admin_headers,
+            json={
+                "supply_plan_id": supply_plan.id,
+                "workcenters": ["WC-1"],
+                "lines": ["Line-1"],
+                "shifts": ["Shift-A", "Shift-B"],
+            },
+        )
+
+        downtime = client.post(
+            "/api/v1/production-scheduling/events/recommendation",
+            headers=admin_headers,
+            json={
+                "event_type": "DOWNTIME_PLANNED",
+                "severity": "medium",
+                "event_timestamp": "2026-03-01T13:00:00Z",
+                "supply_plan_id": supply_plan.id,
+            },
+        )
+        assert downtime.status_code == 200
+        assert downtime.json()["actions"][0]["action_type"] == "hold"
+
+        released = client.post(
+            "/api/v1/production-scheduling/events/recommendation",
+            headers=admin_headers,
+            json={
+                "event_type": "ORDER_RELEASED",
+                "severity": "medium",
+                "event_timestamp": "2026-03-01T13:10:00Z",
+                "supply_plan_id": supply_plan.id,
+            },
+        )
+        assert released.status_code == 200
+        assert released.json()["actions"][0]["action_type"] == "expedite"
+
+        wip = client.post(
+            "/api/v1/production-scheduling/events/recommendation",
+            headers=admin_headers,
+            json={
+                "event_type": "WIP_UPDATED",
+                "severity": "low",
+                "event_timestamp": "2026-03-01T13:20:00Z",
+                "supply_plan_id": supply_plan.id,
+            },
+        )
+        assert wip.status_code == 200
+        assert wip.json()["actions"][0]["action_type"] == "resequence"
 
     def test_recommendations_stream_requires_access_token(
         self,

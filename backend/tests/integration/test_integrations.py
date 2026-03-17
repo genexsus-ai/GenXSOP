@@ -115,6 +115,9 @@ def test_canonical_event_ingest_duplicate_and_replay_flow(client: TestClient, db
     assert first_body["event_id"] == "evt-001"
     assert first_body["duplicate"] is False
     assert first_body["processing_status"] == "NORMALIZED"
+    assert first_body["retry_count"] == 0
+    assert first_body["max_retries"] == 3
+    assert first_body["out_of_order"] is False
 
     duplicate = client.post(
         "/api/v1/integrations/events/ingest",
@@ -125,6 +128,7 @@ def test_canonical_event_ingest_duplicate_and_replay_flow(client: TestClient, db
     dup_body = duplicate.json()
     assert dup_body["duplicate"] is True
     assert dup_body["duplicate_of_event_id"] == "evt-001"
+    assert dup_body["retry_count"] == 0
 
     replay = client.post(
         "/api/v1/integrations/events/evt-001/replay",
@@ -135,6 +139,7 @@ def test_canonical_event_ingest_duplicate_and_replay_flow(client: TestClient, db
     assert replay_body["event_id"] == "evt-001"
     assert replay_body["processing_status"] == "REPLAYED"
     assert replay_body["replay_count"] == 1
+    assert replay_body["retry_count"] == 1
 
     recent = client.get(
         "/api/v1/integrations/events?limit=10",
@@ -143,3 +148,57 @@ def test_canonical_event_ingest_duplicate_and_replay_flow(client: TestClient, db
     assert recent.status_code == 200
     items = recent.json()
     assert any(i["event_id"] == "evt-001" for i in items)
+
+
+def test_canonical_event_out_of_order_and_retry_budget_dead_letter_context(client: TestClient, db):
+    admin_headers = _auth_headers(db, "admin5@test.com", "admin")
+
+    newer = {
+        "event_id": "evt-new",
+        "event_type": "MACHINE_DOWN",
+        "event_source": "MES",
+        "event_timestamp": "2026-03-01T10:10:00Z",
+        "plant_id": "plant-1",
+        "line_id": "line-2",
+        "resource_id": "mc-22",
+        "severity": "high",
+        "payload": {"reason": "trip"},
+        "idempotency_key": "idem-new",
+        "max_retries": 1,
+    }
+    older = {
+        "event_id": "evt-old",
+        "event_type": "MACHINE_RECOVERED",
+        "event_source": "MES",
+        "event_timestamp": "2026-03-01T10:00:00Z",
+        "plant_id": "plant-1",
+        "line_id": "line-2",
+        "resource_id": "mc-22",
+        "severity": "medium",
+        "payload": {"reason": "restored"},
+        "idempotency_key": "idem-old",
+        "max_retries": 1,
+    }
+
+    first = client.post("/api/v1/integrations/events/ingest", headers=admin_headers, json=newer)
+    assert first.status_code == 200
+
+    second = client.post("/api/v1/integrations/events/ingest", headers=admin_headers, json=older)
+    assert second.status_code == 200
+    old_body = second.json()
+    assert old_body["out_of_order"] is True
+
+    replay_1 = client.post("/api/v1/integrations/events/evt-old/replay", headers=admin_headers)
+    assert replay_1.status_code == 200
+    assert replay_1.json()["processing_status"] == "REPLAYED"
+
+    replay_2 = client.post("/api/v1/integrations/events/evt-old/replay", headers=admin_headers)
+    assert replay_2.status_code == 200
+    second_replay = replay_2.json()
+    assert second_replay["processing_status"] == "FAILED"
+    assert second_replay["retry_count"] == 2
+
+    listed = client.get("/api/v1/integrations/events?limit=20", headers=admin_headers)
+    assert listed.status_code == 200
+    old_row = next(i for i in listed.json() if i["event_id"] == "evt-old")
+    assert old_row["dead_letter_reason"] is not None

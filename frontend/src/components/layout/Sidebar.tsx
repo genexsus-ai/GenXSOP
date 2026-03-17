@@ -16,6 +16,7 @@ const navItems: Array<{ to: string; label: string; icon: any; end?: boolean; mod
   { to: '/demand',      label: 'Demand Planning',  icon: TrendingUp, module: 'demand' },
   { to: '/supply',      label: 'Supply Planning',  icon: Factory, module: 'supply' },
   { to: '/production-scheduling', label: 'Production Scheduling', icon: Factory, module: 'production_scheduling' },
+  { to: '/production-control-tower', label: 'Production Control Tower', icon: Brain, module: 'production_scheduling' },
   { to: '/inventory',   label: 'Inventory',        icon: Package, module: 'inventory' },
   { to: '/forecasting', label: 'Forecasting',      icon: Brain, module: 'forecasting' },
   { to: '/scenarios',   label: 'Scenarios',        icon: GitBranch, module: 'scenarios' },

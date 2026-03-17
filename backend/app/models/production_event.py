@@ -24,7 +24,7 @@ class ProductionEvent(Base):
             name="ck_production_events_severity",
         ),
         CheckConstraint(
-            "processing_status IN ('RECEIVED', 'NORMALIZED', 'PROCESSED', 'FAILED', 'REPLAYED')",
+            "processing_status IN ('RECEIVED', 'NORMALIZED', 'PROCESSED', 'FAILED', 'REPLAYED', 'OUT_OF_ORDER', 'DEAD_LETTER')",
             name="ck_production_events_processing_status",
         ),
         Index("ix_production_events_source_ts", "event_source", "event_timestamp"),
@@ -54,7 +54,12 @@ class ProductionEvent(Base):
 
     processing_status = Column(String(20), nullable=False, default="RECEIVED")
     replay_count = Column(Integer, nullable=False, default=0)
+    retry_count = Column(Integer, nullable=False, default=0)
+    max_retries = Column(Integer, nullable=False, default=3)
+    out_of_order = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
+    dead_letter_reason = Column(Text, nullable=True)
+    dead_lettered_at = Column(DateTime, nullable=True)
 
     received_at = Column(DateTime, nullable=False, default=func.now())
     processed_at = Column(DateTime, nullable=True)
